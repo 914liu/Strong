@@ -2,35 +2,38 @@
   "openapi": "3.0.3",
   "info": {
     "title": "剪映 AI 剪辑技能",
-    "description": "通过豆包 AI 驱动剪映自动剪辑 — 支持视频分析、自动字幕、智能剪辑、长转短、全自动流水线",
+    "description": "通过豆包 AI 驱动剪映专业版自动剪辑视频的 REST API 服务。支持视频分析、自动字幕、智能剪辑、长视频转短片、全自动剪辑流水线等功能。",
     "version": "1.0.0"
   },
   "servers": [
     {
-      "url": "http://localhost:9800",
-      "description": "本地服务"
+      "url": "https://your-server-address.com",
+      "description": "部署后的公网地址（请替换为实际地址）"
     }
+  ],
+  "tags": [
+    {"name": "系统状态", "description": "检查服务运行状态和各组件可用性"},
+    {"name": "视频上传", "description": "上传视频文件到服务器"},
+    {"name": "视频分析", "description": "AI 分析视频内容，返回时长、分辨率、画幅等信息及剪辑建议"},
+    {"name": "自动字幕", "description": "从视频中提取音频并生成字幕文件"},
+    {"name": "智能剪辑", "description": "AI 智能分析视频并生成剪辑方案（自动/精彩/紧凑风格）"},
+    {"name": "长视频转短片", "description": "从长视频中提取精彩片段，生成多个短视频方案"},
+    {"name": "全自动流水线", "description": "一键执行完整剪辑流水线：分析 → 字幕 → 剪辑 → 导出到剪映"},
+    {"name": "剪映控制", "description": "启动剪映、查看和打开草稿"}
   ],
   "paths": {
     "/api/status": {
       "get": {
+        "tags": ["系统状态"],
         "operationId": "getStatus",
         "summary": "检查服务状态",
-        "description": "检查剪映AI剪辑技能服务是否正常运行，以及剪映、FFmpeg、豆包API的可用性",
+        "description": "检查剪映 AI 剪辑技能服务是否正常运行，以及剪映、FFmpeg、豆包 API 的可用性",
         "responses": {
           "200": {
-            "description": "服务状态",
+            "description": "服务状态信息",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {"type": "string"},
-                    "jianying": {"type": "object", "properties": {"available": {"type": "boolean"}}},
-                    "ffmpeg": {"type": "object", "properties": {"available": {"type": "boolean"}}},
-                    "doubao": {"type": "object", "properties": {"available": {"type": "boolean"}}}
-                  }
-                }
+                "schema": {"$ref": "#/components/schemas/StatusResponse"}
               }
             }
           }
@@ -39,19 +42,25 @@
     },
     "/api/upload": {
       "post": {
+        "tags": ["视频上传"],
         "operationId": "uploadVideo",
-        "summary": "上传视频",
-        "description": "上传视频文件到服务器，返回文件路径和基本信息",
+        "summary": "上传视频文件",
+        "description": "上传视频文件到服务器，返回文件路径和基本信息（时长、大小等）。支持 mp4/mov/avi/mkv/wmv/flv/webm 格式。",
         "requestBody": {
           "required": true,
           "content": {
             "multipart/form-data": {
               "schema": {
                 "type": "object",
+                "required": ["file"],
                 "properties": {
-                  "file": {"type": "string", "format": "binary", "description": "视频文件 (mp4/mov/avi/mkv)"}
-                },
-                "required": ["file"]
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "title": "视频文件",
+                    "description": "要上传的视频文件，支持 mp4/mov/avi/mkv/wmv/flv/webm"
+                  }
+                }
               }
             }
           }
@@ -61,16 +70,15 @@
             "description": "上传成功",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "file_id": {"type": "string"},
-                    "path": {"type": "string"},
-                    "filename": {"type": "string"},
-                    "size_mb": {"type": "number"},
-                    "duration_seconds": {"type": "number"}
-                  }
-                }
+                "schema": {"$ref": "#/components/schemas/UploadResponse"}
+              }
+            }
+          },
+          "422": {
+            "description": "参数校验失败",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/HTTPValidationError"}
               }
             }
           }
@@ -79,21 +87,15 @@
     },
     "/api/analyze": {
       "post": {
+        "tags": ["视频分析"],
         "operationId": "analyzeVideo",
-        "summary": "分析视频",
-        "description": "AI分析视频内容，返回视频信息、剪辑建议和推荐操作",
+        "summary": "AI 分析视频",
+        "description": "AI 分析视频内容，返回视频信息（时长、分辨率、画幅）以及豆包 AI 给出的剪辑建议和推荐操作",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "video_path": {"type": "string", "description": "视频文件路径"},
-                  "analysis_type": {"type": "string", "enum": ["full", "scene", "content"], "default": "full", "description": "分析类型"}
-                },
-                "required": ["video_path"]
-              }
+              "schema": {"$ref": "#/components/schemas/AnalyzeRequest"}
             }
           }
         },
@@ -102,207 +104,393 @@
             "description": "分析结果",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "video_path": {"type": "string"},
-                    "info": {
-                      "type": "object",
-                      "properties": {
-                        "duration_seconds": {"type": "number"},
-                        "resolution": {"type": "string"},
-                        "canvas": {"type": "string"},
-                        "has_audio": {"type": "boolean"}
-                      }
-                    },
-                    "ai_advice": {"type": "string", "description": "AI剪辑建议"},
-                    "recommendations": {"type": "array", "items": {"type": "string"}}
-                  }
-                }
+                "schema": {"$ref": "#/components/schemas/AnalyzeResponse"}
               }
             }
+          },
+          "422": {
+            "description": "参数校验失败"
           }
         }
       }
     },
     "/api/subtitle": {
       "post": {
+        "tags": ["自动字幕"],
         "operationId": "generateSubtitles",
         "summary": "生成字幕",
-        "description": "从视频中提取音频并生成字幕",
+        "description": "从视频中提取音频，可通过 ASR 服务转录生成字幕文件。支持中文和英文。",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "video_path": {"type": "string", "description": "视频文件路径"},
-                  "language": {"type": "string", "default": "zh", "description": "语言: zh/en"}
-                },
-                "required": ["video_path"]
-              }
+              "schema": {"$ref": "#/components/schemas/SubtitleRequest"}
             }
           }
         },
         "responses": {
           "200": {
-            "description": "字幕生成结果"
+            "description": "字幕生成结果",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/SubtitleResponse"}
+              }
+            }
+          },
+          "422": {
+            "description": "参数校验失败"
           }
         }
       }
     },
     "/api/smart_cut": {
       "post": {
+        "tags": ["智能剪辑"],
         "operationId": "smartCut",
         "summary": "智能剪辑",
-        "description": "AI智能分析视频并生成剪辑方案，支持自动/精彩/紧凑等风格",
+        "description": "AI 智能分析视频并生成剪辑方案。支持三种风格：auto（自动）、highlight（提取精彩片段）、compact（紧凑去废话）。",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "video_path": {"type": "string", "description": "视频文件路径"},
-                  "style": {"type": "string", "enum": ["auto", "highlight", "compact"], "default": "auto", "description": "剪辑风格"},
-                  "target_duration": {"type": "integer", "default": 0, "description": "目标时长(秒), 0=自动"}
-                },
-                "required": ["video_path"]
-              }
+              "schema": {"$ref": "#/components/schemas/SmartCutRequest"}
             }
           }
         },
         "responses": {
           "200": {
-            "description": "剪辑方案"
+            "description": "剪辑方案",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/SmartCutResponse"}
+              }
+            }
+          },
+          "422": {
+            "description": "参数校验失败"
           }
         }
       }
     },
     "/api/long_to_short": {
       "post": {
+        "tags": ["长视频转短片"],
         "operationId": "longToShort",
         "summary": "长视频转短片",
-        "description": "从长视频中提取精彩片段，生成多个短视频",
+        "description": "从长视频中提取精彩片段，生成多个短视频方案。适合将直播、课程、访谈等长内容拆分为短视频。",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "video_path": {"type": "string", "description": "长视频文件路径"},
-                  "max_clip_duration": {"type": "integer", "default": 60, "description": "每个短片最大时长(秒)"},
-                  "count": {"type": "integer", "default": 5, "description": "生成短片数量"}
-                },
-                "required": ["video_path"]
-              }
+              "schema": {"$ref": "#/components/schemas/LongToShortRequest"}
             }
           }
         },
         "responses": {
           "200": {
-            "description": "短片方案"
+            "description": "短片方案",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/LongToShortResponse"}
+              }
+            }
+          },
+          "422": {
+            "description": "参数校验失败"
           }
         }
       }
     },
     "/api/full_pipeline": {
       "post": {
+        "tags": ["全自动流水线"],
         "operationId": "fullPipeline",
         "summary": "全自动剪辑流水线",
-        "description": "一键执行完整剪辑流水线：分析→字幕→剪辑→导出到剪映",
+        "description": "一键执行完整剪辑流水线：视频分析 → 字幕生成 → 智能剪辑 → 导出到剪映草稿。支持配置是否添加字幕和背景音乐。",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "video_path": {"type": "string", "description": "视频文件路径"},
-                  "add_subtitles": {"type": "boolean", "default": true, "description": "是否添加字幕"},
-                  "add_bgm": {"type": "boolean", "default": false, "description": "是否添加背景音乐"},
-                  "style": {"type": "string", "default": "auto", "description": "剪辑风格"}
-                },
-                "required": ["video_path"]
-              }
+              "schema": {"$ref": "#/components/schemas/FullPipelineRequest"}
             }
           }
         },
         "responses": {
           "200": {
-            "description": "流水线状态"
+            "description": "流水线状态",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/FullPipelineResponse"}
+              }
+            }
+          },
+          "422": {
+            "description": "参数校验失败"
           }
         }
       }
     },
     "/api/open_jianying": {
       "post": {
+        "tags": ["剪映控制"],
         "operationId": "openJianying",
         "summary": "打开剪映",
         "description": "启动剪映专业版应用程序",
         "responses": {
           "200": {
-            "description": "启动结果"
+            "description": "启动结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {"type": "string", "title": "状态", "example": "ok"},
+                    "message": {"type": "string", "title": "提示信息", "example": "剪映已启动"}
+                  }
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/draft/open": {
       "post": {
+        "tags": ["剪映控制"],
         "operationId": "openDraft",
         "summary": "在剪映中打开草稿",
-        "description": "在剪映中打开指定草稿或最新草稿",
+        "description": "在剪映中打开指定名称的草稿，留空则打开最近修改的草稿",
         "requestBody": {
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "draft_name": {"type": "string", "default": "", "description": "草稿名称, 空=打开最新草稿"}
-                }
-              }
+              "schema": {"$ref": "#/components/schemas/OpenDraftRequest"}
             }
           }
         },
         "responses": {
           "200": {
-            "description": "打开结果"
+            "description": "打开结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {"type": "string", "title": "状态"},
+                    "draft_name": {"type": "string", "title": "草稿名称"},
+                    "draft_path": {"type": "string", "title": "草稿路径"},
+                    "message": {"type": "string", "title": "提示信息"}
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "参数校验失败"
           }
         }
       }
     },
     "/api/drafts": {
       "get": {
+        "tags": ["剪映控制"],
         "operationId": "listDrafts",
-        "summary": "列出剪映草稿",
-        "description": "列出所有剪映草稿文件",
+        "summary": "列出所有剪映草稿",
+        "description": "列出剪映中所有草稿项目，按最后修改时间倒序排列，最多返回 20 个",
         "responses": {
           "200": {
             "description": "草稿列表",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "drafts": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "name": {"type": "string"},
-                          "path": {"type": "string"},
-                          "modified": {"type": "number"}
-                        }
-                      }
-                    },
-                    "total": {"type": "integer"}
-                  }
-                }
+                "schema": {"$ref": "#/components/schemas/DraftListResponse"}
               }
             }
           }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "StatusResponse": {
+        "type": "object",
+        "title": "服务状态响应",
+        "description": "服务运行状态及各组件可用性",
+        "required": ["status", "service", "version", "jianying", "ffmpeg", "doubao"],
+        "properties": {
+          "status": {"type": "string", "title": "状态", "description": "服务运行状态", "example": "running"},
+          "service": {"type": "string", "title": "服务名称", "example": "剪映 AI 剪辑技能"},
+          "version": {"type": "string", "title": "版本号", "example": "1.0.0"},
+          "jianying": {"type": "object", "title": "剪映状态", "description": "剪映是否可用及安装路径", "properties": {"available": {"type": "boolean"}, "path": {"type": "string"}}},
+          "ffmpeg": {"type": "object", "title": "FFmpeg 状态", "description": "FFmpeg 是否可用及路径", "properties": {"available": {"type": "boolean"}, "path": {"type": "string"}}},
+          "doubao": {"type": "object", "title": "豆包状态", "description": "豆包 API 是否可用", "properties": {"available": {"type": "boolean"}}}
+        }
+      },
+      "UploadResponse": {
+        "type": "object",
+        "title": "上传视频响应",
+        "description": "视频上传成功后返回的文件信息",
+        "required": ["file_id", "path", "filename", "size_mb", "duration_seconds"],
+        "properties": {
+          "file_id": {"type": "string", "title": "文件 ID", "description": "系统分配的唯一标识"},
+          "path": {"type": "string", "title": "存储路径", "description": "文件在服务器上的路径"},
+          "filename": {"type": "string", "title": "原始文件名"},
+          "size_mb": {"type": "number", "title": "文件大小（MB）"},
+          "duration_seconds": {"type": "number", "title": "视频时长（秒）"}
+        }
+      },
+      "AnalyzeRequest": {
+        "type": "object",
+        "title": "视频分析请求",
+        "description": "AI 视频分析的输入参数",
+        "required": ["video_path"],
+        "properties": {
+          "video_path": {"type": "string", "title": "视频路径", "description": "视频文件的完整路径", "example": "C:\\Videos\\test.mp4"},
+          "analysis_type": {"type": "string", "title": "分析类型", "description": "full=完整分析, scene=仅场景检测, content=仅内容分析", "default": "full", "enum": ["full", "scene", "content"]}
+        }
+      },
+      "AnalyzeResponse": {
+        "type": "object",
+        "title": "视频分析响应",
+        "description": "AI 视频分析的结果",
+        "required": ["video_path", "info", "ai_advice", "recommendations"],
+        "properties": {
+          "video_path": {"type": "string", "title": "视频路径"},
+          "info": {"type": "object", "title": "视频信息", "description": "包含时长、分辨率、画幅、是否有音轨", "properties": {"duration_seconds": {"type": "number"}, "resolution": {"type": "string"}, "canvas": {"type": "string"}, "has_audio": {"type": "boolean"}}},
+          "ai_advice": {"type": "string", "title": "AI 剪辑建议", "description": "豆包 AI 给出的剪辑建议"},
+          "recommendations": {"type": "array", "title": "推荐操作列表", "items": {"type": "string"}}
+        }
+      },
+      "SubtitleRequest": {
+        "type": "object",
+        "title": "字幕生成请求",
+        "required": ["video_path"],
+        "properties": {
+          "video_path": {"type": "string", "title": "视频路径", "description": "视频文件的完整路径", "example": "C:\\Videos\\test.mp4"},
+          "language": {"type": "string", "title": "语言", "description": "zh=中文, en=英文", "default": "zh", "enum": ["zh", "en"]}
+        }
+      },
+      "SubtitleResponse": {
+        "type": "object",
+        "title": "字幕生成响应",
+        "required": ["status", "audio_path", "message", "next_step"],
+        "properties": {
+          "status": {"type": "string", "title": "状态"},
+          "audio_path": {"type": "string", "title": "提取的音频路径"},
+          "message": {"type": "string", "title": "提示信息"},
+          "next_step": {"type": "string", "title": "下一步操作"}
+        }
+      },
+      "SmartCutRequest": {
+        "type": "object",
+        "title": "智能剪辑请求",
+        "required": ["video_path"],
+        "properties": {
+          "video_path": {"type": "string", "title": "视频路径", "description": "视频文件的完整路径", "example": "C:\\Videos\\test.mp4"},
+          "style": {"type": "string", "title": "剪辑风格", "description": "auto=自动, highlight=提取精彩片段, compact=紧凑去废话", "default": "auto", "enum": ["auto", "highlight", "compact"]},
+          "target_duration": {"type": "integer", "title": "目标时长（秒）", "description": "剪辑后的目标时长，0 表示由 AI 自动决定", "default": 0, "minimum": 0}
+        }
+      },
+      "SmartCutResponse": {
+        "type": "object",
+        "title": "智能剪辑响应",
+        "required": ["status", "video_path", "original_duration", "style", "ai_plan", "output_path", "message"],
+        "properties": {
+          "status": {"type": "string", "title": "状态"},
+          "video_path": {"type": "string", "title": "视频路径"},
+          "original_duration": {"type": "number", "title": "原始时长（秒）"},
+          "style": {"type": "string", "title": "剪辑风格"},
+          "ai_plan": {"type": "string", "title": "AI 剪辑方案"},
+          "output_path": {"type": "string", "title": "输出路径"},
+          "message": {"type": "string", "title": "提示信息"}
+        }
+      },
+      "LongToShortRequest": {
+        "type": "object",
+        "title": "长视频转短片请求",
+        "required": ["video_path"],
+        "properties": {
+          "video_path": {"type": "string", "title": "长视频路径", "description": "长视频文件的完整路径", "example": "C:\\Videos\\long_video.mp4"},
+          "max_clip_duration": {"type": "integer", "title": "短片最大时长（秒）", "description": "每个生成的短片最大时长", "default": 60, "minimum": 1},
+          "count": {"type": "integer", "title": "生成数量", "description": "要生成的短片数量", "default": 5, "minimum": 1, "maximum": 20}
+        }
+      },
+      "LongToShortResponse": {
+        "type": "object",
+        "title": "长转短响应",
+        "required": ["status", "video_path", "original_duration", "target_clips", "max_clip_duration", "ai_plan", "message"],
+        "properties": {
+          "status": {"type": "string", "title": "状态"},
+          "video_path": {"type": "string", "title": "视频路径"},
+          "original_duration": {"type": "number", "title": "原始时长（秒）"},
+          "target_clips": {"type": "integer", "title": "目标短片数量"},
+          "max_clip_duration": {"type": "integer", "title": "短片最大时长（秒）"},
+          "ai_plan": {"type": "string", "title": "AI 短片方案"},
+          "message": {"type": "string", "title": "提示信息"}
+        }
+      },
+      "FullPipelineRequest": {
+        "type": "object",
+        "title": "全自动流水线请求",
+        "required": ["video_path"],
+        "properties": {
+          "video_path": {"type": "string", "title": "视频路径", "description": "视频文件的完整路径", "example": "C:\\Videos\\test.mp4"},
+          "add_subtitles": {"type": "boolean", "title": "添加字幕", "description": "是否自动添加字幕", "default": true},
+          "add_bgm": {"type": "boolean", "title": "添加背景音乐", "description": "是否自动添加背景音乐", "default": false},
+          "style": {"type": "string", "title": "剪辑风格", "description": "auto=自动, highlight=精彩, compact=紧凑", "default": "auto", "enum": ["auto", "highlight", "compact"]}
+        }
+      },
+      "FullPipelineResponse": {
+        "type": "object",
+        "title": "全自动流水线响应",
+        "required": ["status", "video_path", "steps", "ai_strategy", "message"],
+        "properties": {
+          "status": {"type": "string", "title": "状态"},
+          "video_path": {"type": "string", "title": "视频路径"},
+          "steps": {"type": "array", "title": "流水线步骤", "description": "各步骤的名称、状态和详情", "items": {"type": "object", "properties": {"step": {"type": "string"}, "status": {"type": "string"}, "detail": {"type": "string"}}}},
+          "ai_strategy": {"type": "string", "title": "AI 剪辑策略"},
+          "message": {"type": "string", "title": "提示信息"}
+        }
+      },
+      "OpenDraftRequest": {
+        "type": "object",
+        "title": "打开草稿请求",
+        "properties": {
+          "draft_name": {"type": "string", "title": "草稿名称", "description": "要打开的草稿名称，留空则打开最新的草稿", "default": "", "example": "我的视频"}
+        }
+      },
+      "DraftItem": {
+        "type": "object",
+        "title": "草稿条目",
+        "required": ["name", "path", "modified"],
+        "properties": {
+          "name": {"type": "string", "title": "草稿名称"},
+          "path": {"type": "string", "title": "草稿路径"},
+          "modified": {"type": "number", "title": "最后修改时间（时间戳）"}
+        }
+      },
+      "DraftListResponse": {
+        "type": "object",
+        "title": "草稿列表响应",
+        "required": ["drafts", "total"],
+        "properties": {
+          "drafts": {"type": "array", "title": "草稿列表", "items": {"$ref": "#/components/schemas/DraftItem"}},
+          "total": {"type": "integer", "title": "草稿总数"}
+        }
+      },
+      "HTTPValidationError": {
+        "type": "object",
+        "title": "参数校验错误",
+        "properties": {
+          "detail": {"type": "array", "items": {"$ref": "#/components/schemas/ValidationError"}, "title": "错误详情"}
+        }
+      },
+      "ValidationError": {
+        "type": "object",
+        "required": ["loc", "msg", "type"],
+        "properties": {
+          "loc": {"type": "array", "items": {"type": "string"}, "title": "字段路径"},
+          "msg": {"type": "string", "title": "错误信息"},
+          "type": {"type": "string", "title": "错误类型"}
         }
       }
     }
