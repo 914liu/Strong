@@ -1,0 +1,110 @@
+{
+  "skill_id": "jianying_ai_editor",
+  "skill_name": "剪映AI剪辑",
+  "skill_name_en": "JianYing AI Editor",
+  "version": "1.0.0",
+  "description": "通过豆包AI驱动剪映专业版自动剪辑视频。支持视频分析、自动字幕、智能剪辑、长视频转短片、全自动剪辑流水线。",
+  "category": "效率工具",
+  "tags": ["视频剪辑", "剪映", "AI", "自动化", "字幕", "短视频"],
+  "author": "jy_auto_editor",
+  "icon": "🎬",
+
+  "plugin_type": "api",
+  "api_base_url": "http://localhost:9800",
+  "openapi_schema": "openapi.json",
+
+  "tools": [
+    {
+      "name": "analyze_video",
+      "display_name": "分析视频",
+      "description": "AI分析视频内容，返回时长、分辨率、画幅等信息，以及豆包AI给出的剪辑建议",
+      "api": "POST /api/analyze",
+      "parameters": {
+        "video_path": {"type": "string", "required": true, "description": "视频文件路径"}
+      }
+    },
+    {
+      "name": "generate_subtitles",
+      "display_name": "自动字幕",
+      "description": "从视频中提取音频并生成字幕文件",
+      "api": "POST /api/subtitle",
+      "parameters": {
+        "video_path": {"type": "string", "required": true, "description": "视频文件路径"},
+        "language": {"type": "string", "default": "zh", "description": "语言"}
+      }
+    },
+    {
+      "name": "smart_cut",
+      "display_name": "智能剪辑",
+      "description": "AI智能分析视频并生成剪辑方案，支持自动/精彩/紧凑风格",
+      "api": "POST /api/smart_cut",
+      "parameters": {
+        "video_path": {"type": "string", "required": true, "description": "视频文件路径"},
+        "style": {"type": "string", "default": "auto", "description": "auto/highlight/compact"},
+        "target_duration": {"type": "integer", "default": 0, "description": "目标时长(秒)"}
+      }
+    },
+    {
+      "name": "long_to_short",
+      "display_name": "长转短",
+      "description": "从长视频中提取精彩片段，生成多个短视频方案",
+      "api": "POST /api/long_to_short",
+      "parameters": {
+        "video_path": {"type": "string", "required": true, "description": "长视频文件路径"},
+        "count": {"type": "integer", "default": 5, "description": "生成短片数量"},
+        "max_clip_duration": {"type": "integer", "default": 60, "description": "每个短片最大秒数"}
+      }
+    },
+    {
+      "name": "full_pipeline",
+      "display_name": "全自动流水线",
+      "description": "一键执行完整剪辑流水线：分析→字幕→智能剪辑→导出到剪映",
+      "api": "POST /api/full_pipeline",
+      "parameters": {
+        "video_path": {"type": "string", "required": true, "description": "视频文件路径"},
+        "add_subtitles": {"type": "boolean", "default": true},
+        "add_bgm": {"type": "boolean", "default": false},
+        "style": {"type": "string", "default": "auto"}
+      }
+    },
+    {
+      "name": "open_jianying",
+      "display_name": "打开剪映",
+      "description": "启动剪映专业版应用程序",
+      "api": "POST /api/open_jianying",
+      "parameters": {}
+    },
+    {
+      "name": "list_drafts",
+      "display_name": "查看草稿",
+      "description": "列出剪映中所有草稿项目",
+      "api": "GET /api/drafts",
+      "parameters": {}
+    },
+    {
+      "name": "open_draft",
+      "display_name": "打开草稿",
+      "description": "在剪映中打开指定草稿或最新草稿",
+      "api": "POST /api/draft/open",
+      "parameters": {
+        "draft_name": {"type": "string", "default": "", "description": "草稿名称，空=最新"}
+      }
+    }
+  ],
+
+  "system_prompt": "你是剪映AI剪辑助手。你可以通过工具帮用户完成视频剪辑任务：\n1. 分析视频内容和结构\n2. 自动生成字幕\n3. 智能剪辑（去废话、提取精彩片段）\n4. 长视频转短视频\n5. 一键全自动剪辑并导出到剪映\n\n当用户提到视频剪辑相关需求时，主动使用对应工具。先检查服务状态确认一切就绪。",
+
+  "setup": {
+    "requirements": [
+      "Python 3.10+",
+      "FastAPI + uvicorn",
+      "FFmpeg",
+      "剪映专业版"
+    ],
+    "start_command": "python doubao_skill/server.py",
+    "default_port": 9800,
+    "env_vars": {
+      "DOUBAO_API_KEY": "火山引擎方舟平台 API Key"
+    }
+  }
+}

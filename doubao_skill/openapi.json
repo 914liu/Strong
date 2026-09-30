@@ -1,0 +1,310 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "剪映 AI 剪辑技能",
+    "description": "通过豆包 AI 驱动剪映自动剪辑 — 支持视频分析、自动字幕、智能剪辑、长转短、全自动流水线",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:9800",
+      "description": "本地服务"
+    }
+  ],
+  "paths": {
+    "/api/status": {
+      "get": {
+        "operationId": "getStatus",
+        "summary": "检查服务状态",
+        "description": "检查剪映AI剪辑技能服务是否正常运行，以及剪映、FFmpeg、豆包API的可用性",
+        "responses": {
+          "200": {
+            "description": "服务状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {"type": "string"},
+                    "jianying": {"type": "object", "properties": {"available": {"type": "boolean"}}},
+                    "ffmpeg": {"type": "object", "properties": {"available": {"type": "boolean"}}},
+                    "doubao": {"type": "object", "properties": {"available": {"type": "boolean"}}}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upload": {
+      "post": {
+        "operationId": "uploadVideo",
+        "summary": "上传视频",
+        "description": "上传视频文件到服务器，返回文件路径和基本信息",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {"type": "string", "format": "binary", "description": "视频文件 (mp4/mov/avi/mkv)"}
+                },
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "上传成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "file_id": {"type": "string"},
+                    "path": {"type": "string"},
+                    "filename": {"type": "string"},
+                    "size_mb": {"type": "number"},
+                    "duration_seconds": {"type": "number"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analyze": {
+      "post": {
+        "operationId": "analyzeVideo",
+        "summary": "分析视频",
+        "description": "AI分析视频内容，返回视频信息、剪辑建议和推荐操作",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "video_path": {"type": "string", "description": "视频文件路径"},
+                  "analysis_type": {"type": "string", "enum": ["full", "scene", "content"], "default": "full", "description": "分析类型"}
+                },
+                "required": ["video_path"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "分析结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "video_path": {"type": "string"},
+                    "info": {
+                      "type": "object",
+                      "properties": {
+                        "duration_seconds": {"type": "number"},
+                        "resolution": {"type": "string"},
+                        "canvas": {"type": "string"},
+                        "has_audio": {"type": "boolean"}
+                      }
+                    },
+                    "ai_advice": {"type": "string", "description": "AI剪辑建议"},
+                    "recommendations": {"type": "array", "items": {"type": "string"}}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/subtitle": {
+      "post": {
+        "operationId": "generateSubtitles",
+        "summary": "生成字幕",
+        "description": "从视频中提取音频并生成字幕",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "video_path": {"type": "string", "description": "视频文件路径"},
+                  "language": {"type": "string", "default": "zh", "description": "语言: zh/en"}
+                },
+                "required": ["video_path"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "字幕生成结果"
+          }
+        }
+      }
+    },
+    "/api/smart_cut": {
+      "post": {
+        "operationId": "smartCut",
+        "summary": "智能剪辑",
+        "description": "AI智能分析视频并生成剪辑方案，支持自动/精彩/紧凑等风格",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "video_path": {"type": "string", "description": "视频文件路径"},
+                  "style": {"type": "string", "enum": ["auto", "highlight", "compact"], "default": "auto", "description": "剪辑风格"},
+                  "target_duration": {"type": "integer", "default": 0, "description": "目标时长(秒), 0=自动"}
+                },
+                "required": ["video_path"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "剪辑方案"
+          }
+        }
+      }
+    },
+    "/api/long_to_short": {
+      "post": {
+        "operationId": "longToShort",
+        "summary": "长视频转短片",
+        "description": "从长视频中提取精彩片段，生成多个短视频",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "video_path": {"type": "string", "description": "长视频文件路径"},
+                  "max_clip_duration": {"type": "integer", "default": 60, "description": "每个短片最大时长(秒)"},
+                  "count": {"type": "integer", "default": 5, "description": "生成短片数量"}
+                },
+                "required": ["video_path"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "短片方案"
+          }
+        }
+      }
+    },
+    "/api/full_pipeline": {
+      "post": {
+        "operationId": "fullPipeline",
+        "summary": "全自动剪辑流水线",
+        "description": "一键执行完整剪辑流水线：分析→字幕→剪辑→导出到剪映",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "video_path": {"type": "string", "description": "视频文件路径"},
+                  "add_subtitles": {"type": "boolean", "default": true, "description": "是否添加字幕"},
+                  "add_bgm": {"type": "boolean", "default": false, "description": "是否添加背景音乐"},
+                  "style": {"type": "string", "default": "auto", "description": "剪辑风格"}
+                },
+                "required": ["video_path"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "流水线状态"
+          }
+        }
+      }
+    },
+    "/api/open_jianying": {
+      "post": {
+        "operationId": "openJianying",
+        "summary": "打开剪映",
+        "description": "启动剪映专业版应用程序",
+        "responses": {
+          "200": {
+            "description": "启动结果"
+          }
+        }
+      }
+    },
+    "/api/draft/open": {
+      "post": {
+        "operationId": "openDraft",
+        "summary": "在剪映中打开草稿",
+        "description": "在剪映中打开指定草稿或最新草稿",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "draft_name": {"type": "string", "default": "", "description": "草稿名称, 空=打开最新草稿"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "打开结果"
+          }
+        }
+      }
+    },
+    "/api/drafts": {
+      "get": {
+        "operationId": "listDrafts",
+        "summary": "列出剪映草稿",
+        "description": "列出所有剪映草稿文件",
+        "responses": {
+          "200": {
+            "description": "草稿列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "drafts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {"type": "string"},
+                          "path": {"type": "string"},
+                          "modified": {"type": "number"}
+                        }
+                      }
+                    },
+                    "total": {"type": "integer"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
