@@ -7,8 +7,8 @@
   },
   "servers": [
     {
-      "url": "https://your-server-address.com",
-      "description": "部署后的公网地址（请替换为实际地址）"
+      "url": "https://c2e4d2572c1055.lhr.life",
+      "description": "当前隧道地址（临时，重启后变化）"
     }
   ],
   "tags": [
