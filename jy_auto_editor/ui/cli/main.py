@@ -45,54 +45,54 @@ def main_callback(
 
 @app.command()
 def subtitle(
-    draft_path: Path = typer.Argument(..., help="剪映草稿路径"),
+    video_path: Path = typer.Argument(..., help="视频/音频文件路径"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="输出路径"),
     provider: str = typer.Option("openai", help="ASR 提供商"),
     language: str = typer.Option("zh", help="语言代码"),
 ):
     """自动添加字幕"""
     from jy_auto_editor.ui.cli.commands import cmd_subtitle
-    run_async(cmd_subtitle(draft_path, output, provider, language))
+    run_async(cmd_subtitle(video_path, output, provider, language))
 
 
 @app.command()
 def smart_cut(
-    draft_path: Path = typer.Argument(..., help="剪映草稿路径"),
+    video_path: Path = typer.Argument(..., help="视频文件路径"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="输出路径"),
     style: str = typer.Option("highlight", help="剪辑风格: highlight/narrative/commercial"),
     duration: Optional[int] = typer.Option(None, help="目标时长(秒)"),
 ):
     """智能剪辑 - 自动提取精彩片段"""
     from jy_auto_editor.ui.cli.commands import cmd_smart_cut
-    run_async(cmd_smart_cut(draft_path, output, style, duration))
+    run_async(cmd_smart_cut(video_path, output, style, duration))
 
 
 @app.command()
 def long_to_short(
-    draft_path: Path = typer.Argument(..., help="剪映草稿路径"),
+    video_path: Path = typer.Argument(..., help="长视频文件路径"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="输出路径"),
     target_duration: int = typer.Option(60, help="目标时长(秒)"),
     platform: str = typer.Option("douyin", help="目标平台: douyin/kuaishou/xiaohongshu"),
 ):
     """长视频转短视频"""
     from jy_auto_editor.ui.cli.commands import cmd_long_to_short
-    run_async(cmd_long_to_short(draft_path, output, target_duration, platform))
+    run_async(cmd_long_to_short(video_path, output, target_duration, platform))
 
 
 @app.command()
 def bgm(
-    draft_path: Path = typer.Argument(..., help="剪映草稿路径"),
+    video_path: Path = typer.Argument(..., help="视频文件路径"),
     mood: str = typer.Option("auto", help="音乐情绪: auto/happy/sad/energetic/calm"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="输出路径"),
 ):
     """智能 BGM 推荐"""
     from jy_auto_editor.ui.cli.commands import cmd_bgm
-    run_async(cmd_bgm(draft_path, mood, output))
+    run_async(cmd_bgm(video_path, mood, output))
 
 
-@app.command()
+@app.command(name="run")
 def full_pipeline(
-    draft_path: Path = typer.Argument(..., help="剪映草稿路径"),
+    video_paths: list[Path] = typer.Argument(..., help="视频文件路径（支持多个）"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="输出路径"),
     config: Optional[Path] = typer.Option(None, "--config", "-c", help="配置文件路径"),
     export: bool = typer.Option(False, help="是否导出视频"),
@@ -100,7 +100,7 @@ def full_pipeline(
 ):
     """完整流水线 - 一键全自动处理"""
     from jy_auto_editor.ui.cli.commands import cmd_full_pipeline
-    run_async(cmd_full_pipeline(draft_path, output, config, export, resume))
+    run_async(cmd_full_pipeline(video_paths, output, config, export, resume))
 
 
 @app.command()

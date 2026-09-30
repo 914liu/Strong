@@ -16,6 +16,7 @@ class EventType(str, Enum):
     STAGE_STARTED = "stage.started"
     STAGE_COMPLETED = "stage.completed"
     STAGE_FAILED = "stage.failed"
+    STAGE_SKIPPED = "stage.skipped"
     STAGE_PROGRESS = "stage.progress"
     EXPORT_STARTED = "export.started"
     EXPORT_PROGRESS = "export.progress"

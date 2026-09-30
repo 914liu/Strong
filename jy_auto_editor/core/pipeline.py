@@ -90,6 +90,8 @@ class Pipeline:
         name: str = "default",
         stages: Optional[list[Stage]] = None,
         db_path: str = "",
+        event_bus: Optional[Any] = None,
+        config: Optional[Any] = None,
     ) -> None:
         self.name = name
         self.stages: list[Stage] = stages or []
@@ -97,11 +99,42 @@ class Pipeline:
         self.stage_results: dict[str, StageResult] = {}
         self._db_path = db_path
         self._current_stage: Optional[str] = None
-        self._event_bus = get_event_bus()
+        self._event_bus = event_bus or get_event_bus()
+        self._config = config
+
+    @property
+    def event_bus(self) -> Any:
+        """暴露事件总线，供外部订阅事件"""
+        return self._event_bus
+
+    @property
+    def config(self) -> Any:
+        """暴露配置"""
+        return self._config
 
     def add_stage(self, stage: Stage) -> None:
         """添加 Stage"""
         self.stages.append(stage)
+
+    def register_stage(self, stage: Stage) -> None:
+        """注册 Stage（带校验）
+
+        - 检查 name 非空
+        - 检查重名覆盖
+        """
+        if not stage.name:
+            raise PipelineError(f"Stage class {type(stage).__name__} has no name")
+        # 覆盖同名 Stage（允许后注册覆盖先注册）
+        self.stages = [s for s in self.stages if s.name != stage.name]
+        self.stages.append(stage)
+        logger.debug(f"Registered stage: {stage.name}")
+
+    def get_stage(self, name: str) -> Stage:
+        """按名称获取 Stage 实例"""
+        for stage in self.stages:
+            if stage.name == name:
+                return stage
+        raise PipelineError(f"Stage '{name}' not found in pipeline")
 
     def _resolve_execution_order(self) -> list[Stage]:
         """根据依赖关系解析执行顺序（拓扑排序）"""
@@ -153,8 +186,19 @@ class Pipeline:
 
         return groups
 
-    async def run(self, input_data: ProjectInput, context: Optional[PipelineContext] = None) -> PipelineContext:
-        """执行完整 Pipeline"""
+    async def run(
+        self,
+        input_data: ProjectInput,
+        context: Optional[PipelineContext] = None,
+        resume_from_checkpoint: bool = False,
+    ) -> PipelineContext:
+        """执行完整 Pipeline
+
+        Args:
+            input_data: 项目输入数据
+            context: 可选的已有上下文（用于断点续跑）
+            resume_from_checkpoint: 是否从上次中断处继续
+        """
         if context is None:
             context = PipelineContext(input=input_data)
 
@@ -166,7 +210,8 @@ class Pipeline:
         ))
 
         # 初始化 SQLite 状态存储
-        self._init_db()
+        if resume_from_checkpoint:
+            self._init_db()
 
         execution_order = self._get_parallel_groups()
 
@@ -176,7 +221,7 @@ class Pipeline:
                 tasks = []
                 for stage in group:
                     # 检查断点续跑
-                    if self._is_stage_completed(stage.name):
+                    if resume_from_checkpoint and self._is_stage_completed(stage.name):
                         logger.info(f"Stage '{stage.name}' already completed, skipping (resume)")
                         continue
                     tasks.append(self._run_stage(stage, context))
@@ -223,6 +268,11 @@ class Pipeline:
             )
             self.stage_results[stage.name] = result
             self._save_stage_result(result)
+            await self._event_bus.emit_async(Event(
+                type=EventType.STAGE_SKIPPED,
+                data={"stage": stage.name, "reason": "skipped by condition"},
+                source=stage.name,
+            ))
             return result
 
         start_time = time.monotonic()
@@ -253,9 +303,19 @@ class Pipeline:
 
         except asyncio.TimeoutError:
             await stage.rollback(context)
+            await self._event_bus.emit_async(Event(
+                type=EventType.STAGE_FAILED,
+                data={"stage": stage.name, "error": f"timeout after {stage.timeout}s"},
+                source=stage.name,
+            ))
             raise StageTimeoutError(stage.name, stage.timeout)
         except Exception as e:
             await stage.rollback(context)
+            await self._event_bus.emit_async(Event(
+                type=EventType.STAGE_FAILED,
+                data={"stage": stage.name, "error": str(e)},
+                source=stage.name,
+            ))
             raise StageFailedError(stage.name, e)
 
     def get_status(self) -> dict[str, Any]:

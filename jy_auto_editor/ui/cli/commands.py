@@ -20,7 +20,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from jy_auto_editor.core.config import load_config, AppConfig
 from jy_auto_editor.core.pipeline import Pipeline
-from jy_auto_editor.core.events import EventBus
+from jy_auto_editor.core.events import EventBus, EventType, Event
+from jy_auto_editor.core.models import ProjectInput, CanvasConfig
 from jy_auto_editor.infra.storage import StorageManager
 from jy_auto_editor.infra.monitor import PerformanceMonitor
 
@@ -31,7 +32,7 @@ console = Console()
 def _load_config_with_fallback(config_path: Optional[Path] = None) -> AppConfig:
     """加载配置，失败时使用默认配置"""
     try:
-        return load_config(config_path)
+        return load_config(str(config_path) if config_path else None)
     except Exception as e:
         logger.warning(f"Config load failed, using defaults: {e}")
         return AppConfig()
@@ -57,168 +58,205 @@ def _build_pipeline(config: AppConfig, driver_type: str = "hybrid") -> Pipeline:
     return pipeline
 
 
+def _make_project_input(
+    video_paths: Optional[list[str]] = None,
+    audio_paths: Optional[list[str]] = None,
+    image_paths: Optional[list[str]] = None,
+    canvas_config: Optional[CanvasConfig] = None,
+    **extra_params,
+) -> ProjectInput:
+    """构造 ProjectInput 的便捷工厂"""
+    return ProjectInput(
+        video_paths=video_paths or [],
+        audio_paths=audio_paths or [],
+        image_paths=image_paths or [],
+        canvas_config=canvas_config or CanvasConfig.horizontal(),
+        extra_params=extra_params,
+    )
+
+
 # ── subtitle 命令 ──────────────────────────────────────────────────
 
 async def cmd_subtitle(
-    draft_path: Path,
+    video_path: Path,
     output: Optional[Path],
     provider: str,
     language: str,
 ) -> None:
     """自动添加字幕"""
-    console.print(f"[bold blue]🎬 开始添加字幕[/] 草稿: {draft_path}")
+    console.print(f"[bold blue]开始添加字幕[/] 视频: {video_path}")
 
     config = _load_config_with_fallback()
     pipeline = _build_pipeline(config)
 
-    # 仅启用 ASR 相关阶段
-    pipeline.get_stage("analyze").asr_enabled = True
-    pipeline.get_stage("analyze").scene_enabled = False
-    pipeline.get_stage("analyze").highlight_enabled = False
+    # 仅启用 ASR，关闭场景检测和高光
+    analyze_stage = pipeline.get_stage("analyze")
+    analyze_stage.asr_enabled = True
+    analyze_stage.scene_enabled = False
+    analyze_stage.highlight_enabled = False
 
-    from jy_auto_editor.core.models import ProjectInput
-    project_input = ProjectInput(
-        source_path=draft_path,
-        project_name=draft_path.stem,
+    project_input = _make_project_input(
+        video_paths=[str(video_path)],
+        language=language,
     )
 
     try:
         result = await pipeline.run(project_input)
-        console.print("[bold green]✓ 字幕添加完成[/]")
+        console.print("[bold green]字幕添加完成[/]")
+
+        # 输出字幕信息
+        if result.analysis:
+            console.print(f"  转录文本: {len(result.analysis.transcript)} 字")
+            console.print(f"  字幕条数: {len(result.analysis.subtitles)}")
+
         if output:
-            console.print(f"输出: {output}")
+            console.print(f"  输出: {output}")
     except Exception as e:
-        console.print(f"[bold red]✗ 失败: {e}[/]")
+        console.print(f"[bold red]失败: {e}[/]")
         raise typer.Exit(1)
 
 
 # ── smart_cut 命令 ─────────────────────────────────────────────────
 
 async def cmd_smart_cut(
-    draft_path: Path,
+    video_path: Path,
     output: Optional[Path],
     style: str,
     duration: Optional[int],
 ) -> None:
     """智能剪辑"""
-    console.print(f"[bold blue]✂️  智能剪辑[/] 风格: {style}")
+    console.print(f"[bold blue]智能剪辑[/] 风格: {style}")
 
     config = _load_config_with_fallback()
     pipeline = _build_pipeline(config)
 
-    from jy_auto_editor.core.models import ProjectInput
-    project_input = ProjectInput(
-        source_path=draft_path,
-        project_name=draft_path.stem,
-        target_duration=duration,
+    extra = {"style": style}
+    if duration:
+        extra["target_duration"] = duration
+
+    project_input = _make_project_input(
+        video_paths=[str(video_path)],
+        **extra,
     )
 
     try:
         result = await pipeline.run(project_input)
-        console.print("[bold green]✓ 智能剪辑完成[/]")
+        console.print("[bold green]智能剪辑完成[/]")
+
+        if result.export_result:
+            console.print(f"  输出: {result.export_result.output_path}")
     except Exception as e:
-        console.print(f"[bold red]✗ 失败: {e}[/]")
+        console.print(f"[bold red]失败: {e}[/]")
         raise typer.Exit(1)
 
 
 # ── long_to_short 命令 ─────────────────────────────────────────────
 
 async def cmd_long_to_short(
-    draft_path: Path,
+    video_path: Path,
     output: Optional[Path],
     target_duration: int,
     platform: str,
 ) -> None:
     """长视频转短视频"""
     console.print(
-        f"[bold blue]📱 长转短[/] 目标: {target_duration}s 平台: {platform}"
+        f"[bold blue]长转短[/] 目标: {target_duration}s 平台: {platform}"
     )
 
     config = _load_config_with_fallback()
     pipeline = _build_pipeline(config)
 
-    from jy_auto_editor.core.models import ProjectInput
-    project_input = ProjectInput(
-        source_path=draft_path,
-        project_name=draft_path.stem,
+    project_input = _make_project_input(
+        video_paths=[str(video_path)],
         target_duration=target_duration,
+        platform=platform,
+        max_clips=5,
     )
 
     try:
         result = await pipeline.run(project_input)
-        console.print("[bold green]✓ 长转短完成[/]")
+        console.print("[bold green]长转短完成[/]")
+
+        if result.analysis and result.analysis.highlights:
+            console.print(f"  提取了 {len(result.analysis.highlights)} 个高光片段")
     except Exception as e:
-        console.print(f"[bold red]✗ 失败: {e}[/]")
+        console.print(f"[bold red]失败: {e}[/]")
         raise typer.Exit(1)
 
 
 # ── bgm 命令 ───────────────────────────────────────────────────────
 
 async def cmd_bgm(
-    draft_path: Path,
+    video_path: Path,
     mood: str,
     output: Optional[Path],
 ) -> None:
     """BGM 推荐"""
-    console.print(f"[bold blue]🎵 BGM 推荐[/] 情绪: {mood}")
+    console.print(f"[bold blue]BGM 推荐[/] 情绪: {mood}")
 
     config = _load_config_with_fallback()
-    # BGM 只需要分析阶段
     pipeline = _build_pipeline(config)
 
-    from jy_auto_editor.core.models import ProjectInput
-    project_input = ProjectInput(
-        source_path=draft_path,
-        project_name=draft_path.stem,
+    project_input = _make_project_input(
+        video_paths=[str(video_path)],
+        bgm_mood=mood,
     )
 
     try:
         result = await pipeline.run(project_input)
-        console.print("[bold green]✓ BGM 推荐完成[/]")
+        console.print("[bold green]BGM 推荐完成[/]")
     except Exception as e:
-        console.print(f"[bold red]✗ 失败: {e}[/]")
+        console.print(f"[bold red]失败: {e}[/]")
         raise typer.Exit(1)
 
 
 # ── full_pipeline 命令 ─────────────────────────────────────────────
 
 async def cmd_full_pipeline(
-    draft_path: Path,
+    video_paths: list[Path],
     output: Optional[Path],
     config_path: Optional[Path],
     export: bool,
     resume: bool,
 ) -> None:
     """完整流水线"""
-    console.print(f"[bold blue]🚀 全自动流水线[/] 草稿: {draft_path}")
+    paths_str = [str(p) for p in video_paths]
+    console.print(f"[bold blue]全自动流水线[/] 文件: {len(video_paths)} 个")
 
     config = _load_config_with_fallback(config_path)
     pipeline = _build_pipeline(config)
 
-    from jy_auto_editor.core.models import ProjectInput
-    project_input = ProjectInput(
-        source_path=draft_path,
-        project_name=draft_path.stem,
-    )
-
     # 事件监听
-    async def on_stage_complete(event):
+    def on_stage_complete(event: Event):
         stage_name = event.data.get("stage", "unknown")
-        console.print(f"  [green]✓[/] {stage_name} 完成")
+        duration = event.data.get("duration", 0)
+        console.print(f"  [green]✓[/] {stage_name} 完成 ({duration:.1f}s)")
 
-    pipeline.event_bus.subscribe("stage.completed", on_stage_complete)
+    def on_stage_failed(event: Event):
+        stage_name = event.data.get("stage", "unknown")
+        error = event.data.get("error", "")
+        console.print(f"  [red]✗[/] {stage_name} 失败: {error}")
+
+    pipeline.event_bus.on_async(EventType.STAGE_COMPLETED, on_stage_complete)
+    pipeline.event_bus.on_async(EventType.STAGE_FAILED, on_stage_failed)
+
+    project_input = _make_project_input(video_paths=paths_str)
 
     try:
         result = await pipeline.run(
             project_input,
             resume_from_checkpoint=resume,
         )
-        console.print("[bold green]✓ 流水线执行完成[/]")
+        console.print("[bold green]流水线执行完成[/]")
 
-        if export:
-            console.print("[dim]视频导出完成[/]")
+        if result.export_result:
+            if result.export_result.success:
+                console.print(f"  输出: {result.export_result.output_path}")
+            else:
+                console.print(f"  [red]导出失败: {result.export_result.error_message}[/]")
+
     except Exception as e:
-        console.print(f"[bold red]✗ 流水线失败: {e}[/]")
+        console.print(f"[bold red]流水线失败: {e}[/]")
         raise typer.Exit(1)
 
 
@@ -226,7 +264,7 @@ async def cmd_full_pipeline(
 
 async def cmd_info(draft_path: Path) -> None:
     """查看草稿信息"""
-    console.print(f"[bold]📋 草稿信息[/] {draft_path}")
+    console.print(f"[bold]草稿信息[/] {draft_path}")
 
     try:
         from jy_auto_editor.drivers.draft_engine.reader import DraftReader
@@ -238,18 +276,21 @@ async def cmd_info(draft_path: Path) -> None:
         table.add_column("值", style="green")
 
         table.add_row("名称", project.name)
-        table.add_row("时长", f"{project.duration / 1_000_000:.1f}s")
+        table.add_row("时长", f"{project.total_duration_seconds:.1f}s")
         table.add_row("视频素材", str(len(project.source_videos)))
         table.add_row("音频素材", str(len(project.source_audios)))
-        table.add_row("轨道数", str(len(project.tracks)))
+        table.add_row("轨道数", str(len(project.timeline.tracks)))
 
-        for i, track in enumerate(project.tracks):
-            table.add_row(f"  轨道 {i}", f"{track.type} ({len(track.segments)} 片段)")
+        for i, track in enumerate(project.timeline.tracks):
+            table.add_row(
+                f"  轨道 {i}",
+                f"{track.track_type.value} ({len(track.segments)} 片段)",
+            )
 
         console.print(table)
 
     except Exception as e:
-        console.print(f"[bold red]✗ 读取失败: {e}[/]")
+        console.print(f"[bold red]读取失败: {e}[/]")
         raise typer.Exit(1)
 
 
@@ -257,7 +298,7 @@ async def cmd_info(draft_path: Path) -> None:
 
 async def cmd_check() -> None:
     """检查环境依赖"""
-    console.print("[bold]🔍 环境检查[/]")
+    console.print("[bold]环境检查[/]")
 
     checks = []
 
@@ -272,9 +313,9 @@ async def cmd_check() -> None:
     checks.append(("FFmpeg", ffmpeg_ok, "可用" if ffmpeg_ok else "未安装"))
 
     # 剪映路径
-    from jy_auto_editor.core.config import auto_detect_jianying_path
-    jy_path = auto_detect_jianying_path()
-    checks.append(("剪映", jy_path is not None, str(jy_path) if jy_path else "未检测到"))
+    from jy_auto_editor.core.config import _detect_jianying_paths
+    jy_path, draft_root = _detect_jianying_paths()
+    checks.append(("剪映", bool(jy_path), jy_path if jy_path else "未检测到"))
 
     # 可选依赖
     optional_deps = [
@@ -304,8 +345,11 @@ async def cmd_check() -> None:
 
     console.print(table)
 
-    all_required = all(ok for name, ok, _ in checks if "(可选)" not in _)
+    all_required = all(
+        ok for name, ok, info in checks
+        if "(可选)" not in info
+    )
     if all_required:
-        console.print("[bold green]✓ 环境检查通过[/]")
+        console.print("[bold green]环境检查通过[/]")
     else:
-        console.print("[bold yellow]⚠ 部分必需组件缺失[/]")
+        console.print("[bold yellow]部分必需组件缺失[/]")
