@@ -88,14 +88,36 @@ def _resolve_env_vars(value: Any) -> Any:
 def _detect_jianying_paths() -> tuple[str, str]:
     """自动检测剪映安装路径和草稿目录"""
     local_app_data = os.environ.get("LOCALAPPDATA", "")
-    if not local_app_data:
-        return "", ""
 
-    jianying_path = os.path.join(local_app_data, "JianyingPro")
-    draft_root = os.path.join(
-        local_app_data,
-        "JianyingPro", "User Data", "Projects", "com.lveditor.draft",
-    )
+    # 草稿目录始终在 LOCALAPPDATA
+    draft_root = ""
+    if local_app_data:
+        draft_root = os.path.join(
+            local_app_data,
+            "JianyingPro", "User Data", "Projects", "com.lveditor.draft",
+        )
+
+    # 剪映安装路径 — 检查多个可能位置
+    candidates = [
+        r"E:\剪映\JianyingPro",
+        r"D:\剪映\JianyingPro",
+    ]
+    if local_app_data:
+        candidates.append(os.path.join(local_app_data, "JianyingPro"))
+
+    jianying_path = ""
+    for c in candidates:
+        exe = os.path.join(c, "JianyingPro.exe")
+        if os.path.isfile(exe):
+            jianying_path = c
+            break
+
+    # 如果都没找到，但有 User Data，返回默认路径
+    if not jianying_path and local_app_data:
+        default = os.path.join(local_app_data, "JianyingPro")
+        if os.path.isdir(default):
+            jianying_path = default
+
     return jianying_path, draft_root
 
 
