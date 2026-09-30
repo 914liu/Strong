@@ -104,6 +104,13 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
 
     优先级: 环境变量 > 指定配置文件 > 默认配置
     """
+    # 0. 加载 .env 文件（如果存在）
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
     config = AppConfig()
 
     # 1. 自动检测剪映路径
@@ -113,11 +120,13 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
 
     # 2. 加载 YAML 配置文件
     if config_path is None:
+        # 包内默认配置（始终可用）
+        _pkg_config = Path(__file__).parent.parent / "config" / "default.yaml"
         # 按优先级搜索配置文件
         search_paths = [
-            Path("config/default.yaml"),
-            Path("config/config.yaml"),
-            Path.home() / ".jy_auto_editor" / "config.yaml",
+            _pkg_config,                                     # 包内默认（最低优先级）
+            Path("config.yaml"),                             # CWD 用户覆盖
+            Path.home() / ".jy_auto_editor" / "config.yaml", # 用户全局配置
         ]
         for p in search_paths:
             if p.exists():
@@ -188,6 +197,10 @@ def _merge_config(config: AppConfig, raw: dict[str, Any]) -> AppConfig:
                     device=p_raw.get("device", "cuda"),
                     compute_type=p_raw.get("compute_type", "float16"),
                     language=p_raw.get("language", "zh"),
+                    extra={
+                        "api_key": p_raw.get("api_key", ""),
+                        "base_url": p_raw.get("base_url", ""),
+                    },
                 )
 
     # Driver 配置

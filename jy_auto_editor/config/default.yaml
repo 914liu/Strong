@@ -1,13 +1,8 @@
 # ══════════════════════════════════════════════════════════
-# 剪映 AI 自动剪辑 — 用户配置模板
+# 剪映 AI 自动剪辑 — 配置文件
 # ══════════════════════════════════════════════════════════
-# 使用方法:
-#   1. 复制此文件为 config.yaml:  copy config\default.yaml config.yaml
-#   2. 编辑 config.yaml，填入实际 API Key
-#   3. 或复制 .env.example 为 .env 并设置环境变量
-#
 # 环境变量引用语法: ${ENV_VAR}
-# 配置搜索优先级: 包内默认 < CWD/config.yaml < ~/.jy_auto_editor/config.yaml < --config 指定
+# 复制此文件为 config.yaml 并填入实际值
 
 # ── 全局 ──────────────────────────────────────────────
 debug: false

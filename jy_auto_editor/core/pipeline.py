@@ -202,6 +202,9 @@ class Pipeline:
         if context is None:
             context = PipelineContext(input=input_data)
 
+        # 注入运行时依赖到 context.extra（供 Stage 构建 PluginContext 使用）
+        self._inject_runtime_deps(context)
+
         self.status = PipelineStatus.RUNNING
         await self._event_bus.emit_async(Event(
             type=EventType.PIPELINE_STARTED,
@@ -333,6 +336,22 @@ class Pipeline:
                 for name, r in self.stage_results.items()
             },
         }
+
+    def _inject_runtime_deps(self, context: Any) -> None:
+        """将 Pipeline 上挂载的运行时依赖注入到 context.extra
+
+        供 Stage._build_plugin_context() 读取。
+        """
+        if hasattr(self, "_provider_adapter") and self._provider_adapter is not None:
+            context.extra.setdefault("provider_registry", self._provider_adapter)
+        if hasattr(self, "_plugin_registry") and self._plugin_registry is not None:
+            context.extra.setdefault("plugin_registry", self._plugin_registry)
+        if hasattr(self, "_ffmpeg") and self._ffmpeg is not None:
+            context.extra.setdefault("ffmpeg", self._ffmpeg)
+        if hasattr(self, "_driver") and self._driver is not None:
+            context.extra.setdefault("driver", self._driver)
+        if hasattr(self, "_config") and self._config is not None:
+            context.extra.setdefault("config", self._config)
 
     # ──────────────────────────────────────────
     # SQLite 持久化（断点续跑）

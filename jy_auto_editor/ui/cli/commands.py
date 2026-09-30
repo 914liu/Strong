@@ -39,23 +39,11 @@ def _load_config_with_fallback(config_path: Optional[Path] = None) -> AppConfig:
 
 
 def _build_pipeline(config: AppConfig, driver_type: str = "hybrid") -> Pipeline:
-    """构建流水线实例"""
-    from jy_auto_editor.stages.ingest import IngestStage
-    from jy_auto_editor.stages.analyze import AnalyzeStage
-    from jy_auto_editor.stages.edit import EditStage
-    from jy_auto_editor.stages.review import ReviewStage
-    from jy_auto_editor.stages.export import ExportStage
+    """构建流水线实例（通过 bootstrap 自动装配所有组件）"""
+    from jy_auto_editor.core.bootstrap import bootstrap
 
-    event_bus = EventBus()
-    pipeline = Pipeline(event_bus=event_bus, config=config)
-
-    pipeline.register_stage(IngestStage())
-    pipeline.register_stage(AnalyzeStage())
-    pipeline.register_stage(EditStage())
-    pipeline.register_stage(ReviewStage(enabled=False))
-    pipeline.register_stage(ExportStage())
-
-    return pipeline
+    app_ctx = bootstrap(config=config)
+    return app_ctx.pipeline
 
 
 def _make_project_input(
@@ -332,6 +320,25 @@ async def cmd_check() -> None:
             checks.append((name, True, "已安装"))
         except ImportError:
             checks.append((name, False, "未安装(可选)"))
+
+    # API Key 检查
+    config = _load_config_with_fallback()
+    for name, llm_cfg in config.providers.llm_providers.items():
+        if name == "ollama":
+            checks.append((f"LLM:{name}", True, "无需密钥"))
+        elif llm_cfg.api_key:
+            checks.append((f"LLM:{name} 密钥", True, "已配置"))
+        else:
+            checks.append((f"LLM:{name} 密钥", False, "未配置"))
+
+    for name, asr_cfg in config.providers.asr_providers.items():
+        key = getattr(asr_cfg, "extra", {}).get("api_key", "")
+        if not key and "openai" in config.providers.llm_providers:
+            key = config.providers.llm_providers["openai"].api_key
+        if key:
+            checks.append((f"ASR:{name}", True, "已配置"))
+        else:
+            checks.append((f"ASR:{name}", False, "未配置"))
 
     # 输出结果
     table = Table(title="环境状态")
