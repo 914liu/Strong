@@ -66,6 +66,9 @@ class HybridDriver(DriverInterface):
         self._executor: Optional[ActionExecutor] = None
         self._export_trigger: Optional[ExportTrigger] = None
 
+        # 导出任务跟踪
+        self._export_tasks: dict[str, dict] = {}
+
     def _ensure_gui(self) -> None:
         """延迟初始化 GUI 组件"""
         if self._process is None:
@@ -266,8 +269,41 @@ class HybridDriver(DriverInterface):
     async def add_effect(
         self, project_id: str, segment_id: str, effect_type: str, params: dict
     ) -> None:
-        # 简化实现
-        logger.info(f"Add effect '{effect_type}' to segment {segment_id}")
+        """为片段添加特效
+
+        在 materials.effects 中创建 EffectMaterialModel，
+        并将其 ID 关联到 segment.effects 列表。
+        """
+        import uuid
+
+        mgr = self._get_material_mgr()
+        track_mgr = self._get_track_mgr()
+
+        # 创建特效素材
+        effect_id = str(uuid.uuid4()).upper()
+        effect_material = {
+            "id": effect_id,
+            "name": effect_type,
+            "type": effect_type,
+            "path": params.get("path", ""),
+            "value": params.get("value", 1.0),
+            "duration": params.get("duration", 0),
+        }
+        self._current_draft.materials.effects.append(effect_material)
+
+        # 查找目标片段并关联特效
+        track, seg = track_mgr.find_segment(segment_id)
+        if track is not None and seg is not None:
+            seg.effects.append({
+                "effect_id": effect_id,
+                "effect_type": effect_type,
+                "params": params,
+            })
+            # 添加素材引用
+            if effect_id not in seg.extra_material_refs:
+                seg.extra_material_refs.append(effect_id)
+
+        logger.info(f"Added effect '{effect_type}' ({effect_id}) to segment {segment_id}")
 
     async def add_transition(
         self,
@@ -276,7 +312,38 @@ class HybridDriver(DriverInterface):
         transition_type: str,
         duration_us: int = 500_000,
     ) -> None:
-        logger.info(f"Add transition '{transition_type}' to segment {segment_id}")
+        """为片段添加转场
+
+        在 materials.transitions 中创建转场条目，
+        并记录在片段上。
+        """
+        import uuid
+
+        track_mgr = self._get_track_mgr()
+
+        # 创建转场素材
+        transition_id = str(uuid.uuid4()).upper()
+        transition_material = {
+            "id": transition_id,
+            "type": transition_type,
+            "duration": duration_us,
+            "name": transition_type,
+        }
+        self._current_draft.materials.transitions.append(transition_material)
+
+        # 查找目标片段并关联转场
+        track, seg = track_mgr.find_segment(segment_id)
+        if track is not None and seg is not None:
+            seg.animations.append({
+                "animation_id": transition_id,
+                "type": "transition",
+                "transition_type": transition_type,
+                "duration_us": duration_us,
+            })
+            if transition_id not in seg.extra_material_refs:
+                seg.extra_material_refs.append(transition_id)
+
+        logger.info(f"Added transition '{transition_type}' ({transition_id}) to segment {segment_id}")
 
     # ──────────────────────────────────────────
     # 轨道操作
@@ -297,11 +364,21 @@ class HybridDriver(DriverInterface):
     async def export_video(
         self, project_id: str, config: ExportConfig
     ) -> ExportResult:
+        import uuid
+
         # 1. 先保存草稿
         if self._current_project and self._current_project_dir:
             await self.save_project(self._current_project)
 
+        task_id = str(uuid.uuid4()).upper()
+
         if not self._config.use_gui_export:
+            self._export_tasks[task_id] = {
+                "task_id": task_id,
+                "status": "failed",
+                "error": "GUI export disabled. Open project in JianYing manually.",
+                "output_path": config.output_path,
+            }
             return ExportResult(
                 success=False,
                 error_message="GUI export disabled. Open project in JianYing manually.",
@@ -312,11 +389,30 @@ class HybridDriver(DriverInterface):
         if not self._process.is_running():
             self._process.launch(wait=True)
 
-        return await self._export_trigger.trigger_export(
+        self._export_tasks[task_id] = {
+            "task_id": task_id,
+            "status": "exporting",
+            "output_path": config.output_path,
+        }
+
+        result = await self._export_trigger.trigger_export(
             output_path=config.output_path,
             config=config,
             timeout=self._config.gui_timeout,
         )
 
+        self._export_tasks[task_id] = {
+            "task_id": task_id,
+            "status": "completed" if result.success else "failed",
+            "output_path": result.output_path,
+            "file_size_bytes": result.file_size_bytes,
+            "error": result.error_message,
+        }
+
+        return result
+
     async def get_export_status(self, task_id: str) -> dict:
-        return {"task_id": task_id, "status": "unknown"}
+        """查询导出任务状态"""
+        if task_id in self._export_tasks:
+            return self._export_tasks[task_id]
+        return {"task_id": task_id, "status": "not_found"}

@@ -704,3 +704,148 @@ async def _async_iter(items):
     """Helper to create an async iterator from a list"""
     for item in items:
         yield item
+
+
+# ──────────────────────────────────────────────
+# PySceneDetect CV Provider tests
+# ──────────────────────────────────────────────
+
+
+class TestPySceneDetectCVProvider:
+    def test_provider_name(self):
+        from jy_auto_editor.ai.providers.cv_provider import PySceneDetectCVProvider
+        p = PySceneDetectCVProvider()
+        assert p.provider_name == "pyscenedetect"
+
+    def test_check_scenedetect_not_available(self):
+        from jy_auto_editor.ai.providers.cv_provider import PySceneDetectCVProvider
+        p = PySceneDetectCVProvider()
+        # Mock import to fail
+        with patch.dict("sys.modules", {"scenedetect": None}):
+            result = p._check_scenedetect()
+            assert result is False
+            assert p._scenedetect_available is False
+
+    def test_check_scenedetect_cached(self):
+        from jy_auto_editor.ai.providers.cv_provider import PySceneDetectCVProvider
+        p = PySceneDetectCVProvider()
+        p._scenedetect_available = False
+        # Should return cached value without checking import
+        result = p._check_scenedetect()
+        assert result is False
+
+    def test_detect_with_ffmpeg(self):
+        from jy_auto_editor.ai.providers.cv_provider import PySceneDetectCVProvider
+
+        p = PySceneDetectCVProvider(ffmpeg_path="ffmpeg")
+
+        # Mock subprocess
+        mock_stderr = b"""
+        [showinfo @ 0x5555] n:   0 pts_time:0.000000
+        [showinfo @ 0x5555] n:  75 pts_time:2.500000
+        [showinfo @ 0x5555] n: 150 pts_time:5.000000
+        """
+
+        mock_proc = MagicMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"", mock_stderr))
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            result = _run(p._detect_with_ffmpeg("/tmp/test.mp4", 30.0))
+
+        assert len(result) == 3
+        assert result[0].time_us == 0
+        assert result[1].time_us == 2_500_000
+        assert result[1].frame_number == 75
+        assert result[2].time_us == 5_000_000
+
+    def test_detect_with_ffmpeg_no_output(self):
+        from jy_auto_editor.ai.providers.cv_provider import PySceneDetectCVProvider
+
+        p = PySceneDetectCVProvider()
+
+        mock_proc = MagicMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"", b"no scenes"))
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            result = _run(p._detect_with_ffmpeg("/tmp/test.mp4", 30.0))
+
+        assert result == []
+
+    def test_detect_with_ffmpeg_not_found(self):
+        from jy_auto_editor.ai.providers.cv_provider import PySceneDetectCVProvider
+
+        p = PySceneDetectCVProvider(ffmpeg_path="/nonexistent/ffmpeg")
+
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError):
+            result = _run(p._detect_with_ffmpeg("/tmp/test.mp4", 30.0))
+
+        assert result == []
+
+    def test_extract_keyframes(self):
+        from jy_auto_editor.ai.providers.cv_provider import PySceneDetectCVProvider
+        import tempfile
+        import os
+
+        p = PySceneDetectCVProvider()
+
+        # Create temp directory for output
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = os.path.join(tmpdir, "test.mp4")
+            output_dir = os.path.join(tmpdir, "test_keyframes")
+            os.makedirs(output_dir)
+
+            # Create fake frame files
+            for i in range(3):
+                frame_path = os.path.join(output_dir, f"frame_{i:04d}.jpg")
+                with open(frame_path, "w") as f:
+                    f.write("fake image")
+
+            mock_proc = MagicMock()
+            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+            mock_proc.returncode = 0
+
+            with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+                result = _run(p.extract_keyframes(video_path, interval_seconds=2.0))
+
+            assert len(result) == 3
+            assert "frame_0000.jpg" in result[0]
+            assert "frame_0002.jpg" in result[2]
+
+    def test_extract_keyframes_failure(self):
+        from jy_auto_editor.ai.providers.cv_provider import PySceneDetectCVProvider
+
+        p = PySceneDetectCVProvider()
+
+        mock_proc = MagicMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
+        mock_proc.returncode = 1
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            result = _run(p.extract_keyframes("/tmp/test.mp4", 1.0))
+
+        assert result == []
+
+    def test_is_available_success(self):
+        from jy_auto_editor.ai.providers.cv_provider import PySceneDetectCVProvider
+
+        p = PySceneDetectCVProvider()
+
+        mock_proc = MagicMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"ffmpeg version 4.0", b""))
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            result = _run(p.is_available())
+
+        assert result is True
+
+    def test_is_available_ffmpeg_not_found(self):
+        from jy_auto_editor.ai.providers.cv_provider import PySceneDetectCVProvider
+
+        p = PySceneDetectCVProvider(ffmpeg_path="/nonexistent/ffmpeg")
+
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError):
+            result = _run(p.is_available())
+
+        assert result is False
+

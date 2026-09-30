@@ -29,11 +29,13 @@ def _make_plugin_context(
     temp_dir="/tmp/test_ai_plugins",
 ):
     """构建测试用 PluginContext"""
+    mock_ffmpeg = MagicMock()
+    mock_ffmpeg.extract_audio = AsyncMock()
     return PluginContext(
         config={},
         provider_registry=provider_registry,
         plugin_registry=plugin_registry,
-        ffmpeg=None,
+        ffmpeg=mock_ffmpeg,
         temp_dir=temp_dir,
         cache_dir="/tmp/test_ai_plugins_cache",
     )
@@ -651,6 +653,403 @@ class TestLongToShortPlugin:
         # Verify highlight plugin was called with default platform
         call_args = mock_highlight.process.call_args
         assert call_args.args[0]["platform"] == "douyin"
+
+
+# ──────────────────────────────────────────────
+# Content Rewrite Plugin tests
+# ──────────────────────────────────────────────
+
+
+class TestContentRewritePlugin:
+    def test_plugin_metadata(self):
+        from jy_auto_editor.ai.plugins.content_rewrite.plugin import ContentRewritePlugin
+        p = ContentRewritePlugin()
+        assert p.plugin_id == "content_rewrite"
+        assert p.plugin_name == "智能内容改写"
+        assert "llm" in p.required_providers
+
+    def test_input_schema(self):
+        from jy_auto_editor.ai.plugins.content_rewrite.plugin import ContentRewritePlugin
+        p = ContentRewritePlugin()
+        assert "text" in p.input_schema["properties"]
+        assert "text" in p.input_schema["required"]
+        assert "style" in p.input_schema["properties"]
+
+    def test_process_single_text(self):
+        from jy_auto_editor.ai.plugins.content_rewrite.plugin import ContentRewritePlugin
+
+        llm_response = LLMResponse(content="这是改写后的专业文本")
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = ContentRewritePlugin()
+        result = _run(plugin.process({
+            "text": "这是原始文本",
+            "style": "professional",
+        }, ctx))
+
+        assert result["rewritten_text"] == "这是改写后的专业文本"
+        assert result["style"] == "professional"
+        assert result["original_length"] == len("这是原始文本")
+        assert result["rewritten_length"] == len("这是改写后的专业文本")
+
+    def test_process_default_style(self):
+        from jy_auto_editor.ai.plugins.content_rewrite.plugin import ContentRewritePlugin
+
+        llm_response = LLMResponse(content="rewritten")
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = ContentRewritePlugin()
+        result = _run(plugin.process({"text": "original"}, ctx))
+        assert result["style"] == "professional"
+
+    def test_process_prompt_contains_style(self):
+        from jy_auto_editor.ai.plugins.content_rewrite.plugin import ContentRewritePlugin
+
+        llm_response = LLMResponse(content="ok")
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = ContentRewritePlugin()
+        _run(plugin.process({"text": "test", "style": "humorous"}, ctx))
+
+        call_args = mock_llm.chat.call_args
+        prompt = call_args.kwargs["messages"][1].content
+        assert "幽默风趣" in prompt
+
+    def test_process_batch_subtitles(self):
+        from jy_auto_editor.ai.plugins.content_rewrite.plugin import ContentRewritePlugin
+
+        llm_response = LLMResponse(content="改写一 ||| 改写二 ||| 改写三")
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = ContentRewritePlugin()
+        result = _run(plugin.process({
+            "text": "ignored when subtitles present",
+            "subtitles": [
+                {"text": "原文一", "start_us": 0, "end_us": 1_000_000},
+                {"text": "原文二", "start_us": 1_000_000, "end_us": 2_000_000},
+                {"text": "原文三", "start_us": 2_000_000, "end_us": 3_000_000},
+            ],
+        }, ctx))
+
+        assert result["count"] == 3
+        assert result["subtitles"][0]["text"] == "改写一"
+        assert result["subtitles"][0]["original_text"] == "原文一"
+        assert result["subtitles"][1]["text"] == "改写二"
+
+    def test_process_batch_fallback_for_missing(self):
+        from jy_auto_editor.ai.plugins.content_rewrite.plugin import ContentRewritePlugin
+
+        # LLM returns fewer parts than input
+        llm_response = LLMResponse(content="only one")
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = ContentRewritePlugin()
+        result = _run(plugin.process({
+            "text": "x",
+            "subtitles": [
+                {"text": "a"},
+                {"text": "b"},
+                {"text": "c"},
+            ],
+        }, ctx))
+
+        assert result["subtitles"][0]["text"] == "only one"
+        # Parts beyond LLM output keep original text
+        assert result["subtitles"][1]["text"] == "b"
+        assert result["subtitles"][2]["text"] == "c"
+
+
+# ──────────────────────────────────────────────
+# Cover Gen Plugin tests
+# ──────────────────────────────────────────────
+
+
+class TestCoverGenPlugin:
+    def test_plugin_metadata(self):
+        from jy_auto_editor.ai.plugins.cover_gen.plugin import CoverGenPlugin
+        p = CoverGenPlugin()
+        assert p.plugin_id == "cover_gen"
+        assert p.plugin_name == "智能封面生成"
+        assert "llm" in p.required_providers
+
+    def test_input_schema(self):
+        from jy_auto_editor.ai.plugins.cover_gen.plugin import CoverGenPlugin
+        p = CoverGenPlugin()
+        assert "video_path" in p.input_schema["properties"]
+        assert "video_path" in p.input_schema["required"]
+
+    def test_process_with_cv_provider(self):
+        from jy_auto_editor.ai.plugins.cover_gen.plugin import CoverGenPlugin
+
+        # Mock CV provider returns keyframe paths
+        mock_cv = MagicMock()
+        mock_cv.extract_keyframes = AsyncMock(return_value=[
+            "/tmp/frame_0000.jpg",
+            "/tmp/frame_0001.jpg",
+            "/tmp/frame_0002.jpg",
+        ])
+
+        # Mock LLM returns cover selection JSON
+        selections = [
+            {"frame_index": 1, "score": 9.0, "reason": "最佳画面"},
+            {"frame_index": 0, "score": 7.0, "reason": "不错"},
+        ]
+        llm_response = LLMResponse(content=json.dumps(selections))
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm, "cv": mock_cv})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = CoverGenPlugin()
+        result = _run(plugin.process({
+            "video_path": "/tmp/test.mp4",
+            "num_candidates": 2,
+        }, ctx))
+
+        assert result["candidate_count"] == 2
+        assert result["cover_path"] == "/tmp/frame_0001.jpg"
+        assert result["candidates"][0]["score"] == 9.0
+
+    def test_process_no_keyframes(self):
+        from jy_auto_editor.ai.plugins.cover_gen.plugin import CoverGenPlugin
+
+        mock_cv = MagicMock()
+        mock_cv.extract_keyframes = AsyncMock(return_value=[])
+
+        registry = _make_mock_provider_registry({"cv": mock_cv})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = CoverGenPlugin()
+        result = _run(plugin.process({"video_path": "/tmp/test.mp4"}, ctx))
+
+        assert result["cover_path"] == ""
+        assert result["candidates"] == []
+        assert "error" in result
+
+    def test_process_json_parse_fallback(self):
+        from jy_auto_editor.ai.plugins.cover_gen.plugin import CoverGenPlugin
+
+        mock_cv = MagicMock()
+        mock_cv.extract_keyframes = AsyncMock(return_value=[
+            "/tmp/f0.jpg", "/tmp/f1.jpg",
+        ])
+
+        # LLM returns invalid JSON
+        llm_response = LLMResponse(content="not json at all")
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm, "cv": mock_cv})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = CoverGenPlugin()
+        result = _run(plugin.process({
+            "video_path": "/tmp/test.mp4",
+            "num_candidates": 2,
+        }, ctx))
+
+        # Should fall back to first frames with default scores
+        assert result["candidate_count"] == 2
+        assert result["candidates"][0]["score"] == 5.0
+
+    def test_process_no_cv_provider_fallback(self):
+        from jy_auto_editor.ai.plugins.cover_gen.plugin import CoverGenPlugin
+
+        # No CV provider — should try ffmpeg fallback (which will fail in test)
+        llm_response = LLMResponse(content="[]")
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = CoverGenPlugin()
+        result = _run(plugin.process({"video_path": "/tmp/test.mp4"}, ctx))
+
+        # FFmpeg fallback will fail in test env, so no keyframes
+        assert result["candidates"] == []
+
+
+# ──────────────────────────────────────────────
+# Script Gen Plugin tests
+# ──────────────────────────────────────────────
+
+
+class TestScriptGenPlugin:
+    def test_plugin_metadata(self):
+        from jy_auto_editor.ai.plugins.script_gen.plugin import ScriptGenPlugin
+        p = ScriptGenPlugin()
+        assert p.plugin_id == "script_gen"
+        assert p.plugin_name == "智能脚本生成"
+        assert "llm" in p.required_providers
+
+    def test_input_schema(self):
+        from jy_auto_editor.ai.plugins.script_gen.plugin import ScriptGenPlugin
+        p = ScriptGenPlugin()
+        assert "video_path" in p.input_schema["required"]
+        assert "transcript" in p.input_schema["required"]
+
+    def test_process_success(self):
+        from jy_auto_editor.ai.plugins.script_gen.plugin import ScriptGenPlugin
+
+        script_data = {
+            "title": "测试视频",
+            "segments": [
+                {"action": "keep", "start_us": 0, "end_us": 10_000_000, "purpose": "开场", "notes": ""},
+                {"action": "trim", "start_us": 10_000_000, "end_us": 30_000_000, "purpose": "主体", "notes": "加速"},
+            ],
+            "transitions": [
+                {"after_segment": 0, "type": "fade", "duration_us": 500_000},
+            ],
+            "bgm_suggestion": "轻快音乐",
+            "subtitle_style": "底部居中",
+            "opening_hook": "悬念开头",
+        }
+        llm_response = LLMResponse(content=json.dumps(script_data))
+
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = ScriptGenPlugin()
+        result = _run(plugin.process({
+            "video_path": "/tmp/test.mp4",
+            "transcript": "这是一段测试内容",
+            "scenes": [{"start_us": 0, "end_us": 30_000_000}],
+        }, ctx))
+
+        assert result["script"]["title"] == "测试视频"
+        assert result["segment_count"] == 2
+        assert result["target_platform"] == "douyin"
+        # Total duration: 10s + 20s = 30s
+        assert result["total_duration"] == 30.0
+
+    def test_process_json_in_code_block(self):
+        from jy_auto_editor.ai.plugins.script_gen.plugin import ScriptGenPlugin
+
+        script_data = {"title": "代码块测试", "segments": []}
+        content = f"分析结果如下：\n```json\n{json.dumps(script_data)}\n```"
+        llm_response = LLMResponse(content=content)
+
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = ScriptGenPlugin()
+        result = _run(plugin.process({
+            "video_path": "/tmp/test.mp4",
+            "transcript": "test",
+        }, ctx))
+
+        assert result["script"]["title"] == "代码块测试"
+
+    def test_process_json_parse_failure(self):
+        from jy_auto_editor.ai.plugins.script_gen.plugin import ScriptGenPlugin
+
+        llm_response = LLMResponse(content="not valid json {{{")
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = ScriptGenPlugin()
+        result = _run(plugin.process({
+            "video_path": "/tmp/test.mp4",
+            "transcript": "test",
+        }, ctx))
+
+        assert result["segment_count"] == 0
+        assert result["script"]["title"] == ""
+        assert result["script"]["segments"] == []
+
+    def test_process_platform_specs(self):
+        from jy_auto_editor.ai.plugins.script_gen.plugin import ScriptGenPlugin
+
+        llm_response = LLMResponse(content="[]")
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = ScriptGenPlugin()
+        _run(plugin.process({
+            "video_path": "/tmp/test.mp4",
+            "transcript": "test",
+            "target_platform": "bilibili",
+        }, ctx))
+
+        call_args = mock_llm.chat.call_args
+        prompt = call_args.kwargs["messages"][1].content
+        assert "bilibili" in prompt
+        assert "16:9" in prompt
+
+    def test_process_default_duration_from_platform(self):
+        from jy_auto_editor.ai.plugins.script_gen.plugin import ScriptGenPlugin
+
+        llm_response = LLMResponse(content="{}")
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = ScriptGenPlugin()
+        result = _run(plugin.process({
+            "video_path": "/tmp/test.mp4",
+            "transcript": "test",
+            "target_platform": "douyin",
+        }, ctx))
+
+        # Default target_duration for douyin is 60
+        assert result["target_duration"] == 60
+
+    def test_process_video_type_in_prompt(self):
+        from jy_auto_editor.ai.plugins.script_gen.plugin import ScriptGenPlugin
+
+        llm_response = LLMResponse(content="{}")
+        mock_llm = MagicMock()
+        mock_llm.chat = AsyncMock(return_value=llm_response)
+
+        registry = _make_mock_provider_registry({"llm": mock_llm})
+        ctx = _make_plugin_context(provider_registry=registry)
+
+        plugin = ScriptGenPlugin()
+        _run(plugin.process({
+            "video_path": "/tmp/test.mp4",
+            "transcript": "test",
+            "video_type": "tutorial",
+        }, ctx))
+
+        call_args = mock_llm.chat.call_args
+        prompt = call_args.kwargs["messages"][1].content
+        assert "教程" in prompt
 
 
 # ──────────────────────────────────────────────

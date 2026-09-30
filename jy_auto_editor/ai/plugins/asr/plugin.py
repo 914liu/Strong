@@ -49,17 +49,25 @@ class ASRPlugin(AIPlugin):
     }
 
     async def process(self, input_data: dict[str, Any], context: PluginContext) -> dict[str, Any]:
+        from pathlib import Path
+
         video_path = input_data["video_path"]
         language = input_data.get("language", "zh")
 
         # 1. 提取音频（使用 FFmpeg）
-        audio_path = str(context.get_temp_path("extracted_audio.wav"))
+        audio_path = context.get_temp_path("extracted_audio.wav")
         logger.info(f"Extracting audio from {video_path} -> {audio_path}")
-        # TODO: 调用 ffmpeg.extract_audio(video_path, audio_path)
+
+        ffmpeg = context._ffmpeg
+        if ffmpeg is None:
+            from ....infra.ffmpeg import FFmpegWrapper
+            ffmpeg = FFmpegWrapper()
+
+        await ffmpeg.extract_audio(Path(video_path), audio_path)
 
         # 2. 调用 ASR Provider
         asr_provider = context.get_provider("asr")
-        transcript = await asr_provider.transcribe_with_timestamps(audio_path, language)
+        transcript = await asr_provider.transcribe_with_timestamps(str(audio_path), language)
 
         # 3. 返回结构化结果
         return {

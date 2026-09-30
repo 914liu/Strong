@@ -412,23 +412,87 @@ class TestHybridDriverExport:
         result = _run(driver.export_video("P1", export_config))
         assert result.success is True
 
-    def test_get_export_status(self):
+    def test_get_export_status_not_found(self):
         driver = HybridDriver()
         status = _run(driver.get_export_status("task123"))
         assert status["task_id"] == "task123"
-        assert status["status"] == "unknown"
+        assert status["status"] == "not_found"
 
-
-# ══════════════════════════════════════════════
-# HybridDriver — Effect / Transition (stubs)
-# ══════════════════════════════════════════════
-
-class TestHybridDriverStubs:
-    def test_add_effect_does_not_raise(self):
+    def test_get_export_status_existing_task(self):
         driver = HybridDriver()
-        # Should just log, not raise
+        driver._export_tasks["T1"] = {
+            "task_id": "T1",
+            "status": "exporting",
+            "output_path": "/tmp/out.mp4",
+        }
+        status = _run(driver.get_export_status("T1"))
+        assert status["status"] == "exporting"
+        assert status["output_path"] == "/tmp/out.mp4"
+
+
+# ══════════════════════════════════════════════
+# HybridDriver — Effect / Transition
+# ══════════════════════════════════════════════
+
+class TestHybridDriverEffectTransition:
+    def _setup_with_segment(self, tmp_path):
+        from jy_auto_editor.drivers.draft_engine.schema import (
+            SegmentModel,
+            TimeRangeModel,
+            TrackModel,
+        )
+        driver = HybridDriver()
+        draft = DraftContentModel(id="P1", name="Test")
+        track = TrackModel(id="T1", type="video")
+        seg = SegmentModel(
+            id="S1",
+            material_id="M1",
+            source_timerange=TimeRangeModel(start=0, duration=10_000_000),
+            target_timerange=TimeRangeModel(start=0, duration=10_000_000),
+        )
+        track.segments.append(seg)
+        draft.tracks.append(track)
+        driver._current_draft = draft
+        driver._current_project_dir = tmp_path
+        return driver
+
+    def test_add_effect(self, tmp_path):
+        driver = self._setup_with_segment(tmp_path)
         _run(driver.add_effect("P1", "S1", "blur", {"intensity": 0.5}))
 
-    def test_add_transition_does_not_raise(self):
-        driver = HybridDriver()
+        # Effect material added to materials
+        assert len(driver._current_draft.materials.effects) == 1
+        effect_mat = driver._current_draft.materials.effects[0]
+        assert effect_mat["type"] == "blur"
+
+        # Effect linked to segment
+        seg = driver._current_draft.tracks[0].segments[0]
+        assert len(seg.effects) == 1
+        assert seg.effects[0]["effect_type"] == "blur"
+        assert effect_mat["id"] in seg.extra_material_refs
+
+    def test_add_transition(self, tmp_path):
+        driver = self._setup_with_segment(tmp_path)
         _run(driver.add_transition("P1", "S1", "fade", 500_000))
+
+        # Transition material added
+        assert len(driver._current_draft.materials.transitions) == 1
+        trans_mat = driver._current_draft.materials.transitions[0]
+        assert trans_mat["type"] == "fade"
+        assert trans_mat["duration"] == 500_000
+
+        # Transition linked to segment
+        seg = driver._current_draft.tracks[0].segments[0]
+        assert len(seg.animations) == 1
+        assert seg.animations[0]["transition_type"] == "fade"
+        assert trans_mat["id"] in seg.extra_material_refs
+
+    def test_add_effect_no_project_raises(self):
+        driver = HybridDriver()
+        with pytest.raises(DriverError, match="No project open"):
+            _run(driver.add_effect("P1", "S1", "blur", {}))
+
+    def test_add_transition_no_project_raises(self):
+        driver = HybridDriver()
+        with pytest.raises(DriverError, match="No project open"):
+            _run(driver.add_transition("P1", "S1", "fade", 500_000))
