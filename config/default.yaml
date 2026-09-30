@@ -1,0 +1,88 @@
+# ──────────────────────────────────────────────────────────────────
+# 剪映 AI 自动剪辑插件 - 默认配置
+# ──────────────────────────────────────────────────────────────────
+
+app:
+  name: "剪映AI自动剪辑"
+  version: "0.1.0"
+  debug: false
+
+# ── 剪映驱动配置 ─────────────────────────────────────────────────
+driver:
+  type: "hybrid"  # draft / gui / hybrid
+  jianying_path: null  # null = 自动检测
+  draft_dir: null      # null = 默认路径
+  export_timeout: 600  # 导出超时(秒)
+
+# ── AI 服务配置 ──────────────────────────────────────────────────
+ai:
+  # LLM 提供商
+  llm:
+    primary: "openai"
+    fallback:
+      - "qwen"
+      - "ollama"
+    providers:
+      openai:
+        api_key: "${OPENAI_API_KEY}"
+        base_url: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
+        model: "${OPENAI_MODEL:-gpt-4o}"
+        temperature: 0.3
+        max_tokens: 4096
+      qwen:
+        api_key: "${DASHSCOPE_API_KEY}"
+        model: "${QWEN_MODEL:-qwen-max}"
+      ollama:
+        base_url: "${OLLAMA_BASE_URL:-http://localhost:11434}"
+        model: "${OLLAMA_MODEL:-llama3}"
+
+  # ASR 提供商
+  asr:
+    primary: "openai"
+    fallback:
+      - "faster_whisper"
+    providers:
+      openai:
+        api_key: "${OPENAI_API_KEY}"
+        model: "whisper-1"
+        language: "zh"
+        response_format: "verbose_json"
+      faster_whisper:
+        model_size: "${FASTER_WHISPER_MODEL:-large-v3}"
+        device: "${FASTER_WHISPER_DEVICE:-cuda}"
+        compute_type: "${FASTER_WHISPER_COMPUTE_TYPE:-float16}"
+        language: "zh"
+
+# ── 流水线配置 ───────────────────────────────────────────────────
+pipeline:
+  max_concurrency: 3
+  stage_timeout: 300
+  checkpoint_enabled: true
+  checkpoint_dir: ".checkpoints"
+  retry_on_failure: true
+  max_retries: 2
+
+# ── 存储配置 ─────────────────────────────────────────────────────
+storage:
+  temp_dir: null  # null = 系统临时目录
+  cache_dir: null
+  output_dir: "./output"
+  max_cache_age_hours: 24
+
+# ── FFmpeg 配置 ──────────────────────────────────────────────────
+ffmpeg:
+  path: "ffmpeg"      # null = 系统 PATH
+  ffprobe_path: "ffprobe"
+
+# ── 日志配置 ─────────────────────────────────────────────────────
+logging:
+  level: "${LOG_LEVEL:-INFO}"
+  file: "${LOG_FILE:-logs/jy_auto_editor.log}"
+  json_format: false
+  color: true
+
+# ── 监控配置 ─────────────────────────────────────────────────────
+monitor:
+  enabled: true
+  interval: 5.0  # 采样间隔(秒)
+  gpu_monitor: true

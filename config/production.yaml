@@ -1,0 +1,51 @@
+# ──────────────────────────────────────────────────────────────────
+# 剪映 AI 自动剪辑插件 - 生产环境配置示例
+# 使用: jy-edit full-pipeline /path --config config/production.yaml
+# ──────────────────────────────────────────────────────────────────
+
+app:
+  debug: false
+
+driver:
+  type: "hybrid"
+  export_timeout: 900
+
+ai:
+  llm:
+    primary: "openai"
+    fallback: ["qwen"]
+    providers:
+      openai:
+        model: "gpt-4o"
+        temperature: 0.2
+        max_tokens: 8192
+
+  asr:
+    primary: "openai"
+    fallback: ["faster_whisper"]
+    providers:
+      openai:
+        model: "whisper-1"
+        language: "zh"
+
+pipeline:
+  max_concurrency: 5
+  stage_timeout: 600
+  checkpoint_enabled: true
+  retry_on_failure: true
+  max_retries: 3
+
+storage:
+  output_dir: "./output"
+  max_cache_age_hours: 12
+
+logging:
+  level: "INFO"
+  file: "logs/production.log"
+  json_format: true
+  color: false
+
+monitor:
+  enabled: true
+  interval: 10.0
+  gpu_monitor: true
