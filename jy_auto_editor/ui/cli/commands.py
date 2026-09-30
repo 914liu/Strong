@@ -218,12 +218,12 @@ async def cmd_full_pipeline(
     def on_stage_complete(event: Event):
         stage_name = event.data.get("stage", "unknown")
         duration = event.data.get("duration", 0)
-        console.print(f"  [green]✓[/] {stage_name} 完成 ({duration:.1f}s)")
+        console.print(f"  [green]OK[/] {stage_name} 完成 ({duration:.1f}s)")
 
     def on_stage_failed(event: Event):
         stage_name = event.data.get("stage", "unknown")
         error = event.data.get("error", "")
-        console.print(f"  [red]✗[/] {stage_name} 失败: {error}")
+        console.print(f"  [red]FAIL[/] {stage_name} 失败: {error}")
 
     pipeline.event_bus.on_async(EventType.STAGE_COMPLETED, on_stage_complete)
     pipeline.event_bus.on_async(EventType.STAGE_FAILED, on_stage_failed)
@@ -347,7 +347,7 @@ async def cmd_check() -> None:
     table.add_column("信息")
 
     for name, ok, info in checks:
-        status = "[green]✓[/]" if ok else "[red]✗[/]"
+        status = "[green]OK[/]" if ok else "[red]NO[/]"
         table.add_row(name, status, info)
 
     console.print(table)
