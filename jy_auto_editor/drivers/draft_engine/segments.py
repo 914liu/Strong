@@ -65,6 +65,10 @@ class SegmentOperator:
         split_ratio = (split_point_us - seg.source_timerange.start) / seg.source_timerange.duration
         split_target = seg.target_timerange.start + int(seg.target_timerange.duration * split_ratio)
 
+        # 保存原始时长，后续计算需要
+        original_source_duration = seg.source_timerange.duration
+        original_target_duration = seg.target_timerange.duration
+
         # 前半段
         seg1_source_duration = split_point_us - seg.source_timerange.start
         seg1_target_duration = split_target - seg.target_timerange.start
@@ -74,7 +78,7 @@ class SegmentOperator:
 
         # 后半段
         seg2_source_start = split_point_us
-        seg2_source_duration = seg.source_timerange.duration - seg1_source_duration
+        seg2_source_duration = original_source_duration - seg1_source_duration
         seg2 = SegmentModel(
             id=str(uuid.uuid4()).upper(),
             material_id=seg.material_id,
