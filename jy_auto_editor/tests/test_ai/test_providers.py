@@ -700,6 +700,147 @@ def _mock_chat_success(self, messages, model="", temperature=0.7, max_tokens=0, 
     pass
 
 
+# ──────────────────────────────────────────────
+# Doubao Provider tests
+# ──────────────────────────────────────────────
+
+
+class TestDoubaoLLMProvider:
+    def test_provider_name(self):
+        from jy_auto_editor.ai.providers.doubao_provider import DoubaoLLMProvider
+        assert DoubaoLLMProvider.provider_name == "doubao"
+
+    def test_is_available_with_key(self):
+        from jy_auto_editor.ai.providers.doubao_provider import DoubaoLLMProvider
+        p = DoubaoLLMProvider(api_key="test-key")
+        assert _run(p.is_available()) is True
+
+    def test_is_available_without_key(self):
+        from jy_auto_editor.ai.providers.doubao_provider import DoubaoLLMProvider
+        p = DoubaoLLMProvider(api_key="")
+        assert _run(p.is_available()) is False
+
+    def test_default_model(self):
+        from jy_auto_editor.ai.providers.doubao_provider import DoubaoLLMProvider
+        p = DoubaoLLMProvider(api_key="test")
+        assert p._model == "doubao-pro-32k"
+
+    def test_custom_model(self):
+        from jy_auto_editor.ai.providers.doubao_provider import DoubaoLLMProvider
+        p = DoubaoLLMProvider(api_key="test", model="doubao-lite-32k")
+        assert p._model == "doubao-lite-32k"
+
+    def test_base_url(self):
+        from jy_auto_editor.ai.providers.doubao_provider import DoubaoLLMProvider, DOUBAO_BASE_URL
+        assert DOUBAO_BASE_URL == "https://ark.cn-beijing.volces.com/api/v3"
+        p = DoubaoLLMProvider(api_key="test")
+        assert p._api_key == "test"
+
+    def test_chat(self):
+        from jy_auto_editor.ai.providers.doubao_provider import DoubaoLLMProvider
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "doubao response"
+        mock_response.choices[0].finish_reason = "stop"
+        mock_response.model = "doubao-pro-32k"
+        mock_response.usage = MagicMock()
+        mock_response.usage.prompt_tokens = 10
+        mock_response.usage.completion_tokens = 20
+        mock_response.usage.total_tokens = 30
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        p = DoubaoLLMProvider(api_key="test-key")
+        p._client = mock_client
+
+        result = _run(p.chat([Message(role="user", content="hi")]))
+        assert result.content == "doubao response"
+        assert result.model == "doubao-pro-32k"
+        assert result.usage["total_tokens"] == 30
+        assert result.finish_reason == "stop"
+
+    def test_chat_uses_doubao_base_url(self):
+        from jy_auto_editor.ai.providers.doubao_provider import DoubaoLLMProvider, DOUBAO_BASE_URL
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "resp"
+        mock_response.choices[0].finish_reason = "stop"
+        mock_response.model = "doubao-pro-32k"
+        mock_response.usage = MagicMock()
+        mock_response.usage.prompt_tokens = 0
+        mock_response.usage.completion_tokens = 0
+        mock_response.usage.total_tokens = 0
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        p = DoubaoLLMProvider(api_key="test-key")
+        p._client = mock_client
+
+        _run(p.chat([Message(role="user", content="hi")]))
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["model"] == "doubao-pro-32k"
+
+    def test_chat_stream(self):
+        from jy_auto_editor.ai.providers.doubao_provider import DoubaoLLMProvider
+
+        async def mock_stream():
+            chunk1 = MagicMock()
+            chunk1.choices = [MagicMock()]
+            chunk1.choices[0].delta.content = "hello"
+            chunk2 = MagicMock()
+            chunk2.choices = [MagicMock()]
+            chunk2.choices[0].delta.content = " doubao"
+            yield chunk1
+            yield chunk2
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_stream())
+
+        p = DoubaoLLMProvider(api_key="test-key")
+        p._client = mock_client
+
+        chunks = []
+
+        async def collect():
+            async for chunk in p.chat_stream([Message(role="user", content="hi")]):
+                chunks.append(chunk)
+
+        _run(collect())
+        assert chunks == ["hello", " doubao"]
+
+    def test_get_client_uses_correct_base_url(self):
+        from jy_auto_editor.ai.providers.doubao_provider import DoubaoLLMProvider, DOUBAO_BASE_URL
+
+        mock_async_openai = MagicMock()
+        mock_instance = MagicMock()
+        mock_async_openai.return_value = mock_instance
+
+        p = DoubaoLLMProvider(api_key="test-key")
+        p._client = None
+
+        with patch.dict("sys.modules", {"openai": MagicMock(AsyncOpenAI=mock_async_openai)}):
+            client = p._get_client()
+
+        mock_async_openai.assert_called_once_with(
+            api_key="test-key",
+            base_url=DOUBAO_BASE_URL,
+            timeout=60,
+        )
+        assert client is mock_instance
+
+    def test_get_client_import_error(self):
+        from jy_auto_editor.ai.providers.doubao_provider import DoubaoLLMProvider
+        p = DoubaoLLMProvider(api_key="test-key")
+        p._client = None
+        with patch.dict("sys.modules", {"openai": None}):
+            with pytest.raises(RuntimeError, match="openai package not installed"):
+                p._get_client()
+
+
 async def _async_iter(items):
     """Helper to create an async iterator from a list"""
     for item in items:

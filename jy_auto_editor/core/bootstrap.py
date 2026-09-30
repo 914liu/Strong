@@ -60,6 +60,7 @@ def _create_llm_providers(config: AppConfig) -> dict[str, Any]:
     from ..ai.providers.openai_provider import OpenAILLMProvider
     from ..ai.providers.ollama_provider import OllamaLLMProvider
     from ..ai.providers.qwen_provider import QwenLLMProvider
+    from ..ai.providers.doubao_provider import DoubaoLLMProvider
 
     factories = {
         "openai": lambda cfg: OpenAILLMProvider(
@@ -77,6 +78,12 @@ def _create_llm_providers(config: AppConfig) -> dict[str, Any]:
         "qwen": lambda cfg: QwenLLMProvider(
             api_key=cfg.api_key,
             model=cfg.model or "qwen-max",
+            max_tokens=cfg.max_tokens,
+            timeout=cfg.timeout,
+        ),
+        "doubao": lambda cfg: DoubaoLLMProvider(
+            api_key=cfg.api_key,
+            model=cfg.model or "doubao-pro-32k",
             max_tokens=cfg.max_tokens,
             timeout=cfg.timeout,
         ),

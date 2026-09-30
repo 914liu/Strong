@@ -13,8 +13,14 @@ cache_dir: ""                       # 缓存目录（空=系统默认）
 # ── AI Provider 配置 ──────────────────────────────────
 providers:
   llm:
-    default: openai                 # 默认 LLM: openai / ollama / qwen
-    fallback: ollama                # 备用 LLM（默认不可用时自动降级）
+    default: doubao                 # 默认 LLM: doubao / openai / ollama / qwen
+    fallback: openai                # 备用 LLM（默认不可用时自动降级）
+
+    doubao:
+      api_key: ${DOUBAO_API_KEY}
+      model: doubao-pro-32k         # doubao-pro-32k / doubao-lite-32k / doubao-pro-128k
+      max_tokens: 4096
+      timeout: 60
 
     openai:
       api_key: ${OPENAI_API_KEY}
